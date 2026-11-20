@@ -15,6 +15,8 @@
 #include "Misc/CommandLine.h"
 #include "Misc/DateTime.h"
 #include "Misc/Parse.h"
+#include "Misc/Paths.h"
+#include "UnrealClient.h"
 
 namespace
 {
@@ -100,6 +102,27 @@ void AMindPuckGameMode::StartPlay()
 	{
 		ToggleBot();
 	}
+
+	// Diagnostics: -Calibrate starts a calibration as soon as a tracker is present.
+	// -Shot=C:/path/shot.png -ShotAfter=4,20 saves the viewport after 4 and after 20 seconds (the
+	// second file gets _2 before the extension) and then quits. -QuitAfter=30 quits after 30 seconds.
+	bCalibrateAtStart = FParse::Param(FCommandLine::Get(), TEXT("Calibrate"));
+	FParse::Value(FCommandLine::Get(), TEXT("Shot="), ShotPath);
+	FString ShotTimes;
+	if (FParse::Value(FCommandLine::Get(), TEXT("ShotAfter="), ShotTimes, false))
+	{
+		TArray<FString> Parts;
+		ShotTimes.ParseIntoArray(Parts, TEXT(","));
+		for (const FString& Part : Parts)
+		{
+			ShotAfter.Add(FCString::Atod(*Part));
+		}
+	}
+	if (!ShotPath.IsEmpty() && ShotAfter.Num() == 0)
+	{
+		ShotAfter.Add(3.0);
+	}
+	FParse::Value(FCommandLine::Get(), TEXT("QuitAfter="), QuitAfter);
 
 	Super::StartPlay();
 }
@@ -231,6 +254,8 @@ void AMindPuckGameMode::Calibrate()
 
 void AMindPuckGameMode::HandleCalibrationFinished(const FGazeCalibrationResult& Result)
 {
+	UE_LOG(LogMindPuck, Log, TEXT("Calibration result: ok %s, targets %d, samples %d, fit error %.4f, cross error %.4f, reason \"%s\"."),
+		Result.bOk ? TEXT("true") : TEXT("false"), Result.Targets, Result.Samples, Result.FitError, Result.CrossError, *Result.Reason);
 	if (Result.bOk)
 	{
 		Flash(FString::Printf(TEXT("Calibrated: about %d%% of the screen off, typically."), FMath::RoundToInt32(Result.CrossError * 100.0)));
@@ -336,6 +361,61 @@ void AMindPuckGameMode::HandleKeys(APlayerController* Player)
 	}
 }
 
+void AMindPuckGameMode::TickDiagnostics(double DeltaSeconds)
+{
+	RunSeconds += DeltaSeconds;
+
+	// One line when the number of trackers changes, and one when the first gaze sample arrives.
+	const int32 Trackers = Tracker && Tracker->IsConnected() ? Tracker->GetTrackerCount() : 0;
+	if (Trackers != LoggedTrackerCount)
+	{
+		UE_LOG(LogMindPuck, Log, TEXT("Trackers in the room: %d (was %d)."), Trackers, FMath::Max(LoggedTrackerCount, 0));
+		LoggedTrackerCount = Trackers;
+		if (Trackers == 0)
+		{
+			bLoggedFirstGaze = false;
+		}
+	}
+	if (!bLoggedFirstGaze && Tracker && Tracker->HasSample())
+	{
+		const FGazeSample& Sample = Tracker->GetLatest();
+		UE_LOG(LogMindPuck, Log, TEXT("First gaze sample: x %.4f, y %.4f, raw (%.4f, %.4f), confidence %.2f, face %s, blink %s, calibrated %s, t %.1f."),
+			Sample.X, Sample.Y, Sample.RawX, Sample.RawY, Sample.Confidence,
+			Sample.bFace ? TEXT("true") : TEXT("false"), Sample.bBlink ? TEXT("true") : TEXT("false"),
+			Sample.bCalibrated ? TEXT("true") : TEXT("false"), Sample.T);
+		bLoggedFirstGaze = true;
+	}
+
+	if (bCalibrateAtStart && TrackerPresent() && Calibrator && !Calibrator->IsActive())
+	{
+		bCalibrateAtStart = false;
+		UE_LOG(LogMindPuck, Log, TEXT("Starting the calibration asked for with -Calibrate."));
+		Calibrate();
+	}
+
+	if (!ShotPath.IsEmpty() && ShotsTaken < ShotAfter.Num() && RunSeconds >= ShotAfter[ShotsTaken])
+	{
+		FString File = ShotPath;
+		if (ShotsTaken > 0)
+		{
+			File = FPaths::GetPath(ShotPath) / FString::Printf(TEXT("%s_%d%s"), *FPaths::GetBaseFilename(ShotPath), ShotsTaken + 1, *FPaths::GetExtension(ShotPath, true));
+		}
+		UE_LOG(LogMindPuck, Log, TEXT("Saving a screenshot to %s at %.1f s."), *File, RunSeconds);
+		FScreenshotRequest::RequestScreenshot(File, false, false);
+		ShotsTaken++;
+		if (ShotsTaken == ShotAfter.Num() && QuitAfter <= 0.0)
+		{
+			QuitAfter = RunSeconds + 2.0;
+		}
+	}
+	if (QuitAfter > 0.0 && RunSeconds >= QuitAfter && !bQuitRequested)
+	{
+		bQuitRequested = true;
+		UE_LOG(LogMindPuck, Log, TEXT("Quitting after %.1f s, as asked on the command line."), RunSeconds);
+		FPlatformMisc::RequestExit(false);
+	}
+}
+
 void AMindPuckGameMode::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
@@ -352,6 +432,7 @@ void AMindPuckGameMode::Tick(float DeltaSeconds)
 	}
 
 	HandleKeys(Player);
+	TickDiagnostics(DeltaSeconds);
 
 	const double Elapsed = FMath::Min(static_cast<double>(DeltaSeconds), 0.1);
 	if (FlashRemaining > 0.0)
@@ -408,6 +489,8 @@ void AMindPuckGameMode::Tick(float DeltaSeconds)
 
 			if (Sim->bWon)
 			{
+				UE_LOG(LogMindPuck, Log, TEXT("Level %d won by %s in %.1f s (par %.1f s)."),
+					LevelIndex + 1, Bot ? TEXT("the solver bot") : TEXT("the player"), Sim->Time, CurrentLevel.Par);
 				GoalRemaining = GoalSeconds;
 				if (Bot)
 				{

@@ -12,6 +12,18 @@ AMindPuckPawn::AMindPuckPawn()
 	SetRootComponent(Camera);
 	Camera->bConstrainAspectRatio = false;
 	Camera->SetFieldOfView(static_cast<float>(FieldOfView));
+
+	// A fixed exposure. Left to adapt, the engine brightens the dark table until it is pale grey
+	// and every colour washes out. The value suits the table actor's two lights.
+	FPostProcessSettings& Post = Camera->PostProcessSettings;
+	Post.bOverride_AutoExposureMinBrightness = true;
+	Post.bOverride_AutoExposureMaxBrightness = true;
+	Post.AutoExposureMinBrightness = FixedExposure;
+	Post.AutoExposureMaxBrightness = FixedExposure;
+	Post.bOverride_AutoExposureBias = true;
+	Post.AutoExposureBias = 0.f;
+	Post.bOverride_VignetteIntensity = true;
+	Post.VignetteIntensity = 0.f;
 }
 
 void AMindPuckPawn::Frame(const FVector& InCentre, double InWidth, double InHeight)

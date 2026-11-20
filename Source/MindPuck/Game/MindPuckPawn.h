@@ -35,6 +35,9 @@ public:
 	UPROPERTY(EditAnywhere, Category = "MindPuck")
 	double Margin = 0.14;
 
+	/** The exposure the view is held at, in EV100. Higher is darker. */
+	static constexpr float FixedExposure = 2.5f;
+
 private:
 	void Place();
 

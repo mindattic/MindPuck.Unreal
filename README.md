@@ -51,6 +51,9 @@ ported.
 | `-Bot` | Start with the solver bot playing. |
 | `-GazeUrl=ws://host:8787/gaze` | The bridge to connect to. |
 | `-GazeRoom=name` | The bridge room. |
+| `-Calibrate` | Start a calibration as soon as a tracker is present. |
+| `-Shot=C:/shots/a.png -ShotAfter=4,20` | Save the viewport after 4 and after 20 seconds (the second file is `a_2.png`), then quit. |
+| `-QuitAfter=30` | Quit after 30 seconds. |
 | `-DumpLevels=12` | Log the first twelve levels of the run, to compare with `node tools/levels.mjs` on the web. |
 
 ## Controls

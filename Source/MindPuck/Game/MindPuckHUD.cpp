@@ -155,8 +155,21 @@ void AMindPuckHUD::DrawHUD()
 	// Bottom: where the gaze comes from, then the keys.
 	bool bWarning = false;
 	const FString Status = Game->GetStatusText(bWarning);
+	const FString Keys = TEXT("R restart    N skip    B bot demo    C calibrate    M mouse stand-in");
+	{
+		// A dark plate behind the two lines, because they sit over the table's bottom rail.
+		float StatusW = 0.f;
+		float StatusH = 0.f;
+		float KeysW = 0.f;
+		float KeysH = 0.f;
+		GetTextSize(Status, StatusW, StatusH, Medium, static_cast<float>(1.4 * Scale));
+		GetTextSize(Keys, KeysW, KeysH, Medium, static_cast<float>(1.2 * Scale));
+		const double PlateW = FMath::Max(StatusW, KeysW) + 36.0 * Scale;
+		DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.62f), static_cast<float>(W * 0.5 - PlateW * 0.5), static_cast<float>(H - 96.0 * Scale),
+			static_cast<float>(PlateW), static_cast<float>(76.0 * Scale));
+	}
 	DrawCentred(Status, bWarning ? HudWarn : HudText, W * 0.5, H - 86.0 * Scale, Medium, 1.4 * Scale);
-	DrawCentred(TEXT("R restart    N skip    B bot demo    C calibrate    M mouse stand-in"), HudDim, W * 0.5, H - 50.0 * Scale, Medium, 1.2 * Scale);
+	DrawCentred(Keys, HudDim, W * 0.5, H - 50.0 * Scale, Medium, 1.2 * Scale);
 
 	if (Game->IsWon())
 	{

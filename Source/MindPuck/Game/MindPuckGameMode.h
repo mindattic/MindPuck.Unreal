@@ -77,6 +77,8 @@ private:
 	bool PlayerGaze(APlayerController* Player, MindPuck::FVec& OutGaze) const;
 	void MakeBot();
 	void Flash(const FString& Text);
+	/** Log lines and the command-line switches for checking the game without a person at it. */
+	void TickDiagnostics(double DeltaSeconds);
 
 	UFUNCTION()
 	void HandleCalibrationFinished(const FGazeCalibrationResult& Result);
@@ -109,4 +111,15 @@ private:
 
 	FString FlashText;
 	double FlashRemaining = 0.0;
+
+	// Diagnostics.
+	double RunSeconds = 0.0;
+	int32 LoggedTrackerCount = -1;
+	bool bLoggedFirstGaze = false;
+	bool bCalibrateAtStart = false;
+	FString ShotPath;
+	TArray<double> ShotAfter;
+	int32 ShotsTaken = 0;
+	double QuitAfter = 0.0;
+	bool bQuitRequested = false;
 };
