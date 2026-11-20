@@ -5,7 +5,7 @@
 
 #include <cstdint>
 
-// Port of MindPuck/src/core/levelgen.ts.
+// Port of MindPuck.Web/src/core/levelgen.ts.
 
 namespace MindPuck
 {

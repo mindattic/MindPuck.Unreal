@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-// Port of MindPuck/src/core/rng.ts.
+// Port of MindPuck.Web/src/core/rng.ts.
 
 namespace MindPuck
 {

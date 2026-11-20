@@ -105,7 +105,7 @@ solid.
 
 ## How the port mirrors the web core
 
-Each file in `Source/MindPuck/Core` ports the file of the same name in `MindPuck/src/core`:
+Each file in `Source/MindPuck/Core` ports the file of the same name in `MindPuck.Web/src/core`:
 
 | Web | Unreal | Contents |
 | --- | --- | --- |

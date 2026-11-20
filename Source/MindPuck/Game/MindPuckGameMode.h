@@ -13,7 +13,7 @@ class UGazeTrackerSubsystem;
 /**
  * The game loop. It owns the level, the puck simulation and (in the demo) the solver bot, reads
  * the gaze from the eye tracker or the mouse, and tells the table actor where things are. This is
- * the counterpart of MindPuck/src/main.ts.
+ * the counterpart of MindPuck.Web/src/main.ts.
  */
 UCLASS()
 class AMindPuckGameMode : public AGameModeBase

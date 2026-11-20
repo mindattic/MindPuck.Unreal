@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <vector>
 
-// Port of MindPuck/src/core/level.ts.
+// Port of MindPuck.Web/src/core/level.ts.
 
 namespace MindPuck
 {

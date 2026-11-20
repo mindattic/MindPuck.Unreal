@@ -10,7 +10,7 @@
 #include <memory>
 #include <vector>
 
-// Port of MindPuck/src/core/bot.ts.
+// Port of MindPuck.Web/src/core/bot.ts.
 
 namespace MindPuck
 {

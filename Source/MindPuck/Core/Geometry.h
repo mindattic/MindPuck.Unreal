@@ -2,7 +2,7 @@
 
 #include <vector>
 
-// Port of MindPuck/src/core/geometry.ts.
+// Port of MindPuck.Web/src/core/geometry.ts.
 
 namespace MindPuck
 {

@@ -4,7 +4,7 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-// The expected numbers below were printed by the web core (MindPuck/src/core) for the same inputs.
+// The expected numbers below were printed by the web core (MindPuck.Web/src/core) for the same inputs.
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMindPuckRngTest, "MindPuck.Core.Rng",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
