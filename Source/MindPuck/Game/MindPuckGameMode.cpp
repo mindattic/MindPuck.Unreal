@@ -1,0 +1,482 @@
+#include "MindPuckGameMode.h"
+
+#include "Engine/GameInstance.h"
+#include "Engine/World.h"
+#include "GameFramework/PlayerController.h"
+#include "GazeCalibrator.h"
+#include "GazeTrackerSubsystem.h"
+#include "InputCoreTypes.h"
+#include "Kismet/GameplayStatics.h"
+#include "MindPuck.h"
+#include "MindPuckHUD.h"
+#include "MindPuckPawn.h"
+#include "MindPuckPlayerController.h"
+#include "MindPuckTable.h"
+#include "Misc/CommandLine.h"
+#include "Misc/DateTime.h"
+#include "Misc/Parse.h"
+
+namespace
+{
+	const double GameRailWidth = 0.4; // table units, the same as the table actor's rails
+
+	// One line per level, with enough digits to compare against the web core's output for the
+	// same seed and index (node tools/levels.mjs in the MindPuck repo prints kind, obstacles, par
+	// and candidates).
+	void LogLevelSummary(const MindPuck::FLevel& Level, double Millis)
+	{
+		UE_LOG(LogMindPuck, Log,
+			TEXT("Level %d (seed %u): %s, %d obstacles, par %.1f s, %d candidates, start (%.6f, %.6f), goal (%.6f, %.6f), generated in %.0f ms"),
+			Level.Index + 1, Level.Seed,
+			Level.Kind == MindPuck::ELevelKind::Cup ? TEXT("cup") : TEXT("zone"),
+			static_cast<int32>(Level.Obstacles.size()), Level.Par, Level.Attempts,
+			Level.Start.X, Level.Start.Y, Level.Goal.X, Level.Goal.Y, Millis);
+	}
+}
+
+AMindPuckGameMode::AMindPuckGameMode()
+{
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bStartWithTickEnabled = true;
+
+	DefaultPawnClass = AMindPuckPawn::StaticClass();
+	PlayerControllerClass = AMindPuckPlayerController::StaticClass();
+	HUDClass = AMindPuckHUD::StaticClass();
+}
+
+AMindPuckGameMode::~AMindPuckGameMode() = default;
+
+void AMindPuckGameMode::StartPlay()
+{
+	// Which run and level: -Seed=123 -Level=4 on the command line, like ?seed=123&level=4 on the web.
+	int32 SeedArg = 0;
+	if (FParse::Value(FCommandLine::Get(), TEXT("Seed="), SeedArg))
+	{
+		RunSeed = static_cast<uint32>(SeedArg);
+	}
+	else
+	{
+		RunSeed = static_cast<uint32>(FDateTime::UtcNow().GetTicks() / 10000) & 0x7fffffffu;
+	}
+	int32 LevelArg = 1;
+	if (FParse::Value(FCommandLine::Get(), TEXT("Level="), LevelArg))
+	{
+		LevelIndex = FMath::Max(0, LevelArg - 1);
+	}
+
+	Table = GetWorld()->SpawnActor<AMindPuckTable>(AMindPuckTable::StaticClass(), FTransform::Identity);
+	Calibrator = NewObject<UGazeCalibrator>(this);
+	Calibrator->OnFinished.AddDynamic(this, &AMindPuckGameMode::HandleCalibrationFinished);
+
+	if (UGameInstance* GameInstance = GetGameInstance())
+	{
+		Tracker = GameInstance->GetSubsystem<UGazeTrackerSubsystem>();
+	}
+	if (Tracker)
+	{
+		FString Url = TEXT("ws://localhost:8787/gaze");
+		FString Room = TEXT("default");
+		FParse::Value(FCommandLine::Get(), TEXT("GazeUrl="), Url);
+		FParse::Value(FCommandLine::Get(), TEXT("GazeRoom="), Room);
+		Tracker->ClientName = TEXT("MindPuck");
+		Tracker->Connect(Url, Room);
+	}
+
+	UE_LOG(LogMindPuck, Log, TEXT("MindPuck game mode started: seed %u, level %d."), RunSeed, LevelIndex + 1);
+
+	// -DumpLevels=12 logs the first twelve levels of the run, like tools/levels.mjs on the web.
+	int32 DumpCount = 0;
+	if (FParse::Value(FCommandLine::Get(), TEXT("DumpLevels="), DumpCount))
+	{
+		for (int32 Index = 0; Index < FMath::Min(DumpCount, 100); Index++)
+		{
+			const double Began = FPlatformTime::Seconds();
+			const MindPuck::FLevel Dumped = MindPuck::GenerateLevel(RunSeed, Index, Params);
+			LogLevelSummary(Dumped, (FPlatformTime::Seconds() - Began) * 1000.0);
+		}
+	}
+	LoadLevel();
+	if (FParse::Param(FCommandLine::Get(), TEXT("Bot")))
+	{
+		ToggleBot();
+	}
+
+	Super::StartPlay();
+}
+
+void AMindPuckGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (Calibrator)
+	{
+		Calibrator->OnFinished.RemoveAll(this);
+		Calibrator->Cancel();
+	}
+	if (Tracker)
+	{
+		Tracker->Disconnect();
+	}
+	Bot.Reset();
+	Sim.Reset();
+	Super::EndPlay(EndPlayReason);
+}
+
+void AMindPuckGameMode::LoadLevel()
+{
+	// The simulation and the bot point at the level, so they go first.
+	const bool bHadBot = Bot.IsValid();
+	Bot.Reset();
+	Sim.Reset();
+
+	const double Began = FPlatformTime::Seconds();
+	CurrentLevel = MindPuck::GenerateLevel(RunSeed, LevelIndex, Params);
+	const double Millis = (FPlatformTime::Seconds() - Began) * 1000.0;
+
+	LogLevelSummary(CurrentLevel, Millis);
+
+	Sim = MakeUnique<MindPuck::FPuckSim>(CurrentLevel, Params);
+	if (bHadBot)
+	{
+		MakeBot();
+	}
+	if (Table)
+	{
+		Table->BuildLevel(CurrentLevel);
+	}
+	HoldRemaining = HoldSeconds;
+	GoalRemaining = 0.0;
+	GoalDetail.Reset();
+	bGazeValid = false;
+}
+
+void AMindPuckGameMode::MakeBot()
+{
+	// The bot replays the run that proved the level: the same gaze-noise seed the generator's
+	// check used, so the demo always wins and takes exactly the par time.
+	MindPuck::FBotOptions Options;
+	Options.Seed = MindPuck::MixSeed(CurrentLevel.Seed, CurrentLevel.Index, 1000 + CurrentLevel.Attempts - 1);
+	Bot = MakeUnique<MindPuck::FSolverBot>(CurrentLevel, Params, Options);
+}
+
+void AMindPuckGameMode::Restart()
+{
+	if (!Sim)
+	{
+		return;
+	}
+	Sim->Reset();
+	if (Bot)
+	{
+		MakeBot();
+	}
+	HoldRemaining = HoldSeconds;
+	GoalRemaining = 0.0;
+	GoalDetail.Reset();
+	if (Table)
+	{
+		Table->SetGoalLit(false);
+		Table->SetPuck(Sim->Pos.X, Sim->Pos.Y);
+	}
+}
+
+void AMindPuckGameMode::NextLevel()
+{
+	LevelIndex++;
+	LoadLevel();
+}
+
+void AMindPuckGameMode::ToggleBot()
+{
+	if (Bot)
+	{
+		Bot.Reset();
+	}
+	else
+	{
+		MakeBot();
+	}
+	Restart();
+}
+
+void AMindPuckGameMode::ToggleMouse()
+{
+	bMouseStandIn = !bMouseStandIn;
+}
+
+void AMindPuckGameMode::Calibrate()
+{
+	if (!Calibrator)
+	{
+		return;
+	}
+	if (Calibrator->IsActive())
+	{
+		Calibrator->Cancel();
+		return;
+	}
+	if (!TrackerPresent())
+	{
+		Flash(TEXT("No tracker is connected yet. Open http://localhost:8787/tracker/"));
+		return;
+	}
+	if (bMouseStandIn)
+	{
+		Flash(TEXT("Calibration is for eye tracking. Press M to leave the mouse stand-in first."));
+		return;
+	}
+	if (!Calibrator->Start(Tracker))
+	{
+		Flash(FString::Printf(TEXT("Calibration could not start: %s."), *Calibrator->GetResult().Reason));
+	}
+}
+
+void AMindPuckGameMode::HandleCalibrationFinished(const FGazeCalibrationResult& Result)
+{
+	if (Result.bOk)
+	{
+		Flash(FString::Printf(TEXT("Calibrated: about %d%% of the screen off, typically."), FMath::RoundToInt32(Result.CrossError * 100.0)));
+	}
+	else if (Result.Reason != TEXT("cancelled"))
+	{
+		Flash(FString::Printf(TEXT("Calibration failed: %s."), *Result.Reason));
+	}
+	Restart();
+}
+
+void AMindPuckGameMode::Flash(const FString& Text)
+{
+	FlashText = Text;
+	FlashRemaining = 4.5;
+}
+
+bool AMindPuckGameMode::TrackerPresent() const
+{
+	return Tracker && Tracker->IsConnected() && Tracker->GetTrackerCount() > 0;
+}
+
+bool AMindPuckGameMode::UsingMouse() const
+{
+	// The mouse stands in whenever no tracker is connected, so the game is playable without a camera.
+	return bMouseStandIn || !TrackerPresent();
+}
+
+bool AMindPuckGameMode::PlayerGaze(APlayerController* Player, MindPuck::FVec& OutGaze) const
+{
+	if (!Player || !Table)
+	{
+		return false;
+	}
+
+	FVector2D Screen;
+	if (UsingMouse())
+	{
+		float MouseX = 0.f;
+		float MouseY = 0.f;
+		if (!Player->GetMousePosition(MouseX, MouseY))
+		{
+			return false;
+		}
+		Screen = FVector2D(MouseX, MouseY);
+	}
+	else
+	{
+		// No push while the confidence is zero (a blink, or no face) or the sample is stale.
+		if (!Tracker->IsTracking(GazeMaxAgeSeconds))
+		{
+			return false;
+		}
+		// Normalized gaze, 0..1 with y down, covers the whole viewport.
+		Screen = Tracker->GetViewportPoint();
+	}
+
+	FVector Origin;
+	FVector Direction;
+	if (!UGameplayStatics::DeprojectScreenToWorld(Player, Screen, Origin, Direction))
+	{
+		return false;
+	}
+	FVector2D OnTable;
+	if (!Table->RayToTable(Origin, Direction, OnTable))
+	{
+		return false;
+	}
+	OutGaze.X = OnTable.X;
+	OutGaze.Y = OnTable.Y;
+	return true;
+}
+
+void AMindPuckGameMode::HandleKeys(APlayerController* Player)
+{
+	if (!Player)
+	{
+		return;
+	}
+	if (Player->WasInputKeyJustPressed(EKeys::C))
+	{
+		Calibrate();
+	}
+	if (Calibrator && Calibrator->IsActive())
+	{
+		return;
+	}
+	if (Player->WasInputKeyJustPressed(EKeys::R))
+	{
+		Restart();
+	}
+	if (Player->WasInputKeyJustPressed(EKeys::N))
+	{
+		NextLevel();
+	}
+	if (Player->WasInputKeyJustPressed(EKeys::B))
+	{
+		ToggleBot();
+	}
+	if (Player->WasInputKeyJustPressed(EKeys::M))
+	{
+		ToggleMouse();
+	}
+}
+
+void AMindPuckGameMode::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	APlayerController* Player = GetWorld()->GetFirstPlayerController();
+	if (!bFramed && Player && Table)
+	{
+		if (AMindPuckPawn* View = Cast<AMindPuckPawn>(Player->GetPawn()))
+		{
+			const double Scale = AMindPuckTable::UnitScale;
+			View->Frame(Table->GetActorLocation(), (CurrentLevel.Width + GameRailWidth * 2.0) * Scale, (CurrentLevel.Height + GameRailWidth * 2.0) * Scale);
+			bFramed = true;
+		}
+	}
+
+	HandleKeys(Player);
+
+	const double Elapsed = FMath::Min(static_cast<double>(DeltaSeconds), 0.1);
+	if (FlashRemaining > 0.0)
+	{
+		FlashRemaining -= Elapsed;
+	}
+	if (!Sim)
+	{
+		return;
+	}
+
+	const bool bCalibrating = Calibrator && Calibrator->IsActive();
+	bGazeValid = false;
+
+	if (!bCalibrating)
+	{
+		// The reticle is drawn even while the puck is held or the level is won.
+		if (Bot)
+		{
+			GazeTable = Bot->Gaze;
+			bGazeValid = !Sim->bWon;
+		}
+		else
+		{
+			bGazeValid = PlayerGaze(Player, GazeTable);
+		}
+
+		if (Sim->bWon)
+		{
+			GoalRemaining -= Elapsed;
+			if (GoalRemaining <= 0.0)
+			{
+				NextLevel();
+			}
+		}
+		else if (HoldRemaining > 0.0)
+		{
+			// The start of an attempt: the puck stays put and the clock does not run.
+			HoldRemaining -= Elapsed;
+		}
+		else
+		{
+			if (Bot)
+			{
+				MindPuck::FSolverBot* Solver = Bot.Get();
+				MindPuck::FPuckSim* Puck = Sim.Get();
+				Sim->AdvanceWith(Elapsed, [Solver, Puck]() { return &Solver->Update(*Puck); });
+				GazeTable = Bot->Gaze;
+			}
+			else
+			{
+				Sim->Advance(Elapsed, bGazeValid ? &GazeTable : nullptr);
+			}
+
+			if (Sim->bWon)
+			{
+				GoalRemaining = GoalSeconds;
+				if (Bot)
+				{
+					GoalDetail = FString::Printf(TEXT("The solver took %.1f s"), Sim->Time);
+				}
+				else if (Sim->Time <= CurrentLevel.Par)
+				{
+					GoalDetail = FString::Printf(TEXT("%.1f s, under par"), Sim->Time);
+				}
+				else
+				{
+					GoalDetail = FString::Printf(TEXT("%.1f s (par %.1f s)"), Sim->Time, CurrentLevel.Par);
+				}
+				if (Table)
+				{
+					Table->SetGoalLit(true);
+				}
+			}
+		}
+	}
+
+	if (Table && Sim)
+	{
+		Table->SetPuck(Sim->Pos.X, Sim->Pos.Y);
+		Table->SetReticle(bGazeValid, GazeTable.X, GazeTable.Y);
+	}
+}
+
+bool AMindPuckGameMode::GetGazeOnTable(FVector2D& OutTable) const
+{
+	OutTable = FVector2D(GazeTable.X, GazeTable.Y);
+	return bGazeValid;
+}
+
+const std::vector<MindPuck::FVec>* AMindPuckGameMode::GetBotPath() const
+{
+	return Bot ? &Bot->Path : nullptr;
+}
+
+FString AMindPuckGameMode::GetStatusText(bool& bOutWarning) const
+{
+	bOutWarning = false;
+	if (FlashRemaining > 0.0)
+	{
+		bOutWarning = true;
+		return FlashText;
+	}
+	if (Bot)
+	{
+		return TEXT("The solver is playing. Watch where it looks: behind the puck, never at the goal.");
+	}
+	if (!TrackerPresent())
+	{
+		bOutWarning = true;
+		return TEXT("Mouse stand-in: waiting for tracker - open http://localhost:8787/tracker/");
+	}
+	if (bMouseStandIn)
+	{
+		return TEXT("Mouse stand-in: the pointer is your gaze. Press M to use the eye tracker.");
+	}
+	if (Tracker->HasSample() && !Tracker->GetLatest().bFace)
+	{
+		bOutWarning = true;
+		return TEXT("Eye tracker: your face is out of view of the camera.");
+	}
+	if (Tracker->HasSample() && !Tracker->GetLatest().bCalibrated)
+	{
+		bOutWarning = true;
+		return TEXT("Eye tracker: not calibrated yet, press C. Until then the gaze point is a rough guess.");
+	}
+	return TEXT("Eye tracker: look behind the puck to push it. Look far away to let it glide.");
+}

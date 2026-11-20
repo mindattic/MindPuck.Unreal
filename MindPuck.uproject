@@ -1,0 +1,29 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "5.8",
+	"Category": "",
+	"Description": "Move the puck into the goal by looking where you do not want it to go.",
+	"Modules": [
+		{
+			"Name": "MindPuck",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"AdditionalDependencies": [
+				"Engine"
+			]
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "MindAtticEyeTracker",
+			"Enabled": true
+		},
+		{
+			"Name": "ProceduralMeshComponent",
+			"Enabled": true
+		}
+	],
+	"AdditionalPluginDirectories": [
+		"../MindAttic.EyeTracker/unreal"
+	]
+}
