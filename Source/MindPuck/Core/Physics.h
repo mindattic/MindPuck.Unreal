@@ -48,9 +48,9 @@ namespace MindPuck
 		/** Steer mode: the drive when you look at the edge of the puck or just beyond it. */
 		double SteerStrength = 9.0;
 		/** Steer mode: the drive builds from nothing at the centre of the puck to full at this many puck radii out. */
-		double SteerFull = 1.5;
+		double SteerFull = 2.2;
 		/** Steer mode: beyond this many puck radii the drive fades, so looking away lets the puck coast. */
-		double SteerRange = 4.0;
+		double SteerRange = 6.0;
 		/** Steer mode: extra drag while steering, which keeps the speed manageable. */
 		double SteerDrag = 1.2;
 		/** Air drag: the fraction of speed lost per second while gliding. */

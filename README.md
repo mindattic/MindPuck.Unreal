@@ -7,8 +7,9 @@ A puck sits on an air-hockey table and your gaze moves it. There are three contr
 that is live ("Mode 2 of 3  STEER  F1 next"):
 
 1. **Magnetic** (the default): the puck is pulled to where you look. To win, look at the pad.
-2. **Steer**: look at the edge of the puck on the side it should go, and it travels that way. Look
-   at its centre to let it be. Your eyes stay on the puck the whole time.
+2. **Steer**: keep your eyes on the puck and shift them toward the edge on the side it should go,
+   and it travels that way. Look at its centre to let it be. Your eyes stay on the puck the whole
+   time.
 3. **Repulsor**: the point you look at pushes the puck away, like a black hole in reverse. Look
    behind the puck to push it, and look far away to let it glide.
 
@@ -47,7 +48,8 @@ ported.
    - Or open `MindPuck.uproject` in the Unreal Editor and press Play. The editor opens the
      engine's empty map; the game builds the table when play starts.
 
-3. Press **C** to calibrate: look at each of the nine dots until it fills. The game window should
+3. Press **C** to calibrate: look at each of the nine dots until it fills, follow the moving dot
+   with your eyes, then do the three head-movement steps. The game window should
    stay the same size afterwards, because the gaze is mapped to the area the dots covered.
 
 `run.ps1` options: `-BuildOnly`, `-Editor`, `-SkipBuild`, and `-Extra` for game arguments.
@@ -82,16 +84,47 @@ share the mode's colour: pink for magnetic, green for steer, blue for the repuls
 full size for the repulsor, smaller for the magnet and smallest for steer. The editor keeps F1 for
 itself during Play In Editor, so use Tab there.
 
-Calibration (C) shows nine dots, then three head-movement steps with an amber dot: keep your eyes
-on the dot and move your head as the text says. Those steps teach the tracker to allow for head
-movement.
+Calibration (C) has three parts, about a minute in all:
+
+1. Nine dots. Look at each until it fills, head still.
+2. Follow the dot. One dot moves slowly round the whole screen for 24 seconds; follow it with your
+   eyes and keep your head still. The instruction and the seconds left are at the top centre. This
+   samples the whole area instead of nine places and improves accuracy more than anything else.
+3. Three head-movement steps with an amber dot: keep your eyes on the dot and move your head as the
+   text says. They teach the tracker to allow for head movement.
+
+The flow, the path of the moving dot and the messages to the tracker are the plugin's
+(`UGazeCalibrator`: `bPursuit`, `PursuitSeconds`, `bHeadMovement`); the game's HUD only draws them.
 
 The mouse is the gaze whenever no tracker is connected, and the status line says so:
 "waiting for tracker - open http://localhost:8787/tracker/".
 
-At the start of every attempt the puck is held still for 0.9 seconds, so you can find it before
-your gaze starts pushing it. When the puck rests on the pad the game shows GOAL and loads the next
-level of the same run.
+At the start of every attempt the puck is held still, so you can find it before your gaze starts
+pushing it: 0.9 seconds, or 1.7 seconds in steer mode, where the HUD says "Look at the puck". When
+the puck rests on the pad the game shows GOAL and loads the next level of the same run.
+
+### Steer anchors itself to the puck
+
+Steer goes by where you look relative to the puck, and an eye tracker is rarely accurate to within
+the width of the puck. But in steer mode you are looking at the puck by definition. So the game
+measures the standing offset between the gaze point and the puck and subtracts it:
+
+- While the puck is held at the start of an attempt, the offset is followed with a time constant of
+  0.3 seconds, so by the end of the 1.7-second hold the gaze point sits on the puck.
+- During play it is followed with a time constant of 6 seconds, slowly enough that a deliberate
+  look at one edge does its work before it is absorbed, and only while the corrected gaze is within
+  4 table units of the puck, so a glance elsewhere does not drag it.
+
+What is left is the movement of your eyes toward one edge. The reticle is drawn at the corrected
+point. Half a second before the hold ends, once per attempt, the game also tells the tracker that
+you are looking at the puck (`CalibHint` at the puck's place on the screen, weight 0.3), which is a
+free calibration point. The log has one line for it ("Steer anchor at the end of the hold").
+
+The mouse stand-in goes through the same correction, as on the web, but no hint is sent for it. The
+offset is kept from one attempt to the next and dropped when the gaze changes hands between the
+mouse and the tracker. The solver bot's gaze is exact and is not touched. All of this is in the
+game layer (`AMindPuckGameMode::AnchorSteer`), not in the core, so the pars are unaffected. The
+numbers are properties of the game mode, under MindPuck, Steer.
 
 ## How it is built
 
@@ -160,11 +193,14 @@ Measured for seed 12345, levels 1 to 12, when only the repulsor existed: every l
 kind, start, goal and obstacle count as the web, and the same repulsor par for all but level 12,
 where the bot took 19.5 s here and 15.2 s on the web. The magnetic and steer pars were
 compared on 2026-11-19 with the three-mode generator and matched the web for all twelve levels
-(steer zone 1.5 to 4 radii). The web's figures for the same run are printed by `node tools/levels.mjs 12345 12`
-in MindPuck.Web.
+(steer zone 1.5 to 4 radii at the time; it is now 2.2 to 6, as on the web, where level 1's steer
+par is still 4.7 s and level 6's is 6.1 s). The web's figures for the same run are printed by
+`node tools/levels.mjs 12345 12` in MindPuck.Web.
 
-Two things the game layer does differently from the web's `main.ts`:
+Three things the game layer does differently from the web's `main.ts`:
 
+- The steer offset is dropped when the gaze changes hands between the mouse and the tracker. The
+  web keeps it.
 - The bot demo plays with the gaze-noise seed that proved the level in the current mode, so it
   always wins and takes exactly that mode's par time. The web demo uses a fixed seed.
 - `FPuckSim::AdvanceWith` is an addition to the port: `Advance` with a gaze point asked for before

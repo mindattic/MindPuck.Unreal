@@ -61,17 +61,30 @@ void AMindPuckHUD::DrawCalibration(const UGazeCalibrator* Calibrator, double Sca
 		const FVector2D At(Target.X * W, Target.Y * H);
 		// The head-movement steps have an amber dot, so they read as a different instruction.
 		const bool bHead = Calibrator->IsHeadMovementStep();
+		// The follow-the-dot pass: the target moves every frame and the player's eyes follow it.
+		const bool bPursuit = Calibrator->IsPursuitStep();
 		DrawRing(At, 22.0 * Scale, bHead ? HudAmber : HudAccent, 3.0 * Scale);
-		// The centre dot grows while the tracker samples, as on the web.
-		const double DotRadius = (4.0 + 14.0 * Calibrator->GetCollectProgress()) * Scale;
+		// The centre dot grows while the tracker samples, as on the web. On the moving target it
+		// keeps one size (the web's 2.4 on its scale of 1 to 4.6).
+		const double DotRadius = (4.0 + 14.0 * (bPursuit ? (2.4 - 1.0) / (4.6 - 1.0) : Calibrator->GetCollectProgress())) * Scale;
 		Canvas->K2_DrawPolygon(nullptr, At, FVector2D(DotRadius, DotRadius), 24, bHead ? HudAmber : FLinearColor::White);
 
-		const FString Progress = bHead
-			? FString::Printf(TEXT("%s   (C cancels)"), *Calibrator->GetInstruction())
-			: FString::Printf(TEXT("%s   %d / %d   (C cancels)"), *Calibrator->GetInstruction(),
-				Calibrator->GetTargetIndex() + 1, Calibrator->GetDotCount());
-		// Keep the line away from the target: at the bottom, or at the top for the bottom row.
-		DrawCentred(Progress, bHead ? HudText : HudDim, W * 0.5, Target.Y > 0.6 ? H * 0.30 : H * 0.72, Medium, (bHead ? 1.5 : 1.2) * Scale);
+		if (bPursuit)
+		{
+			// At the top centre, the one stretch of the edge the moving dot never comes near, so
+			// the line can stay put for the whole pass. The seconds left count down beside it.
+			const int32 Left = FMath::CeilToInt32((1.0 - Calibrator->GetCollectProgress()) * Calibrator->PursuitSeconds);
+			DrawCentred(FString::Printf(TEXT("%s   %d s   (C cancels)"), *Calibrator->GetInstruction(), Left), HudText, W * 0.5, H * 0.03, Medium, 1.5 * Scale);
+		}
+		else
+		{
+			const FString Progress = bHead
+				? FString::Printf(TEXT("%s   (C cancels)"), *Calibrator->GetInstruction())
+				: FString::Printf(TEXT("%s   %d / %d   (C cancels)"), *Calibrator->GetInstruction(),
+					Calibrator->GetTargetIndex() + 1, Calibrator->GetDotCount());
+			// Keep the line away from the target: at the bottom, or at the top for the bottom row.
+			DrawCentred(Progress, bHead ? HudText : HudDim, W * 0.5, Target.Y > 0.6 ? H * 0.30 : H * 0.72, Medium, (bHead ? 1.5 : 1.2) * Scale);
+		}
 	}
 	else
 	{
@@ -219,6 +232,8 @@ void AMindPuckHUD::DrawHUD()
 	}
 	else if (Game->IsHolding())
 	{
-		DrawCentred(TEXT("Ready"), HudDim, W * 0.5, H * 0.12, Medium, 1.6 * Scale);
+		// In steer mode the hold is when the game finds where the player's gaze sits on the puck.
+		const bool bFindPuck = Game->GetMode() == MindPuck::EGazeMode::Steer && !Game->IsBotPlaying();
+		DrawCentred(bFindPuck ? TEXT("Look at the puck") : TEXT("Ready"), HudDim, W * 0.5, H * 0.12, Medium, 1.6 * Scale);
 	}
 }

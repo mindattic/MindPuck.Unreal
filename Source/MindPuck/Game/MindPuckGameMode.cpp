@@ -43,7 +43,7 @@ namespace
 	const TCHAR* ModeHelp(MindPuck::EGazeMode Mode)
 	{
 		return Mode == MindPuck::EGazeMode::Attract ? TEXT("Magnetic: the puck goes to where you look.")
-			: Mode == MindPuck::EGazeMode::Steer ? TEXT("Steer: look at the edge of the puck on the side it should go. Look at its centre to let it be.")
+			: Mode == MindPuck::EGazeMode::Steer ? TEXT("Steer: keep your eyes on the puck, and shift them toward the edge on the side it should go.")
 			: TEXT("Repulsor: the puck is pushed away from where you look.");
 	}
 
@@ -206,7 +206,8 @@ void AMindPuckGameMode::LoadLevel()
 		Table->BuildLevel(CurrentLevel);
 		Table->SetReticleStyle(ModeColor(GazeMode), GazeMode == MindPuck::EGazeMode::Repel ? 1.0 : GazeMode == MindPuck::EGazeMode::Steer ? 0.45 : 0.6);
 	}
-	HoldRemaining = HoldSeconds;
+	HoldRemaining = GetHoldSeconds();
+	bSteerHinted = false;
 	GoalRemaining = 0.0;
 	GoalDetail.Reset();
 	bGazeValid = false;
@@ -234,7 +235,8 @@ void AMindPuckGameMode::Restart()
 	{
 		MakeBot();
 	}
-	HoldRemaining = HoldSeconds;
+	HoldRemaining = GetHoldSeconds();
+	bSteerHinted = false;
 	GoalRemaining = 0.0;
 	GoalDetail.Reset();
 	if (Table)
@@ -430,6 +432,54 @@ bool AMindPuckGameMode::PlayerGaze(APlayerController* Player, MindPuck::FVec& Ou
 	return true;
 }
 
+void AMindPuckGameMode::AnchorSteer(APlayerController* Player, MindPuck::FVec& Gaze, double Elapsed)
+{
+	// The offset belongs to whatever the gaze comes from: the mouse has none of the tracker's.
+	const bool bMouse = UsingMouse();
+	if (bMouse != bSteerOffsetFromMouse)
+	{
+		bSteerOffsetFromMouse = bMouse;
+		SteerOffset = MindPuck::FVec{ 0.0, 0.0 };
+	}
+
+	const bool bHeld = !Sim->bWon && HoldRemaining > 0.0;
+	const double Ox = Gaze.X - Sim->Pos.X;
+	const double Oy = Gaze.Y - Sim->Pos.Y;
+	// Fast while the puck waits at the start (the player is finding it), slow in play, so that a
+	// deliberate look at one edge is not absorbed before it has done its work.
+	const double TimeConstant = FMath::Max(bHeld ? SteerAnchorHoldSeconds : SteerAnchorPlaySeconds, 1e-6);
+	const double Follow = 1.0 - FMath::Exp(-Elapsed / TimeConstant);
+	if (bHeld || FMath::Sqrt(FMath::Square(Ox - SteerOffset.X) + FMath::Square(Oy - SteerOffset.Y)) < SteerAnchorGate)
+	{
+		SteerOffset.X += (Ox - SteerOffset.X) * Follow;
+		SteerOffset.Y += (Oy - SteerOffset.Y) * Follow;
+	}
+	Gaze.X -= SteerOffset.X;
+	Gaze.Y -= SteerOffset.Y;
+
+	// The player is looking at the puck: that is a free calibration point for the tracker.
+	if (bHeld && !bSteerHinted && HoldRemaining < SteerHintLeadSeconds)
+	{
+		bSteerHinted = true;
+		FVector2D Screen(0.0, 0.0);
+		int32 SizeX = 0;
+		int32 SizeY = 0;
+		Player->GetViewportSize(SizeX, SizeY);
+		const bool bOnScreen = SizeX > 0 && SizeY > 0
+			&& Player->ProjectWorldLocationToScreen(Table->TableToWorld(Sim->Pos.X, Sim->Pos.Y, AMindPuckTable::GazePlaneHeight), Screen);
+		// The mouse has no tracker to tell, as on the web.
+		const bool bSend = bOnScreen && !bMouse && Tracker;
+		if (bSend)
+		{
+			Tracker->CalibHint(Screen.X / SizeX, Screen.Y / SizeY, SteerHintWeight);
+		}
+		UE_LOG(LogMindPuck, Log, TEXT("Steer anchor at the end of the hold: offset (%.3f, %.3f) table units from %s; hint %s at (%.4f, %.4f), weight %.2f."),
+			SteerOffset.X, SteerOffset.Y, bMouse ? TEXT("the mouse") : TEXT("the tracker"),
+			bSend ? TEXT("sent") : TEXT("not sent"),
+			bOnScreen ? Screen.X / SizeX : 0.0, bOnScreen ? Screen.Y / SizeY : 0.0, SteerHintWeight);
+	}
+}
+
 void AMindPuckGameMode::HandleKeys(APlayerController* Player)
 {
 	if (!Player)
@@ -564,6 +614,12 @@ void AMindPuckGameMode::Tick(float DeltaSeconds)
 		else
 		{
 			bGazeValid = PlayerGaze(Player, GazeTable);
+			// Steer goes by the gaze relative to the puck, so the standing offset comes out first.
+			// The reticle is drawn at the corrected point. The bot's gaze is exact and is left alone.
+			if (bGazeValid && GazeMode == MindPuck::EGazeMode::Steer)
+			{
+				AnchorSteer(Player, GazeTable, Elapsed);
+			}
 		}
 
 		if (Sim->bWon)

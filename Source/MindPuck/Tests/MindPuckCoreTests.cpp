@@ -173,7 +173,7 @@ bool FMindPuckLevelGenTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("and takes the magnetic par time"), FMath::RoundToDouble(MagneticReplay.Time * 10.0) / 10.0, Sixth.ParAttract, 1e-9);
 
 	TestEqual(TEXT("level 1 steer par"), First.ParSteer, 4.7, 1e-9);
-	TestEqual(TEXT("level 6 steer par"), Sixth.ParSteer, 6.2, 1e-9);
+	TestEqual(TEXT("level 6 steer par"), Sixth.ParSteer, 6.1, 1e-9);
 	Options.Mode = MindPuck::EGazeMode::Steer;
 	const MindPuck::FSolveResult SteerReplay = MindPuck::SolveLevel(Sixth, MindPuck::FPhysicsParams(), Options);
 	TestTrue(TEXT("the steer proving run repeats"), SteerReplay.bSolved);
