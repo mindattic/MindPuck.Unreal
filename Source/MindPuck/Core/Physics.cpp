@@ -23,6 +23,11 @@ namespace MindPuck
 		return Core * Reach * Reach * Centre;
 	}
 
+	double PullAccel(double D, const FPhysicsParams& P)
+	{
+		return P.PullStrength * (std::min)(D / P.PullSoftness, 1.0);
+	}
+
 	double WinRadius(const FLevel& Level)
 	{
 		return Level.Goal.R - Level.PuckRadius * 0.6;
@@ -87,7 +92,8 @@ namespace MindPuck
 			const double D = std::hypot(Dx, Dy);
 			if (D > 1e-9)
 			{
-				const double A = RepelAccel(D, R, P);
+				// Repel pushes along the line from the gaze point to the puck; attract pulls back along it.
+				const double A = Mode == EGazeMode::Attract ? -PullAccel(D, P) : RepelAccel(D, R, P);
 				Ax = (Dx / D) * A;
 				Ay = (Dy / D) * A;
 			}
@@ -100,7 +106,8 @@ namespace MindPuck
 		const double Gx = Pos.X - Lv.Goal.X;
 		const double Gy = Pos.Y - Lv.Goal.Y;
 		const double GoalDist = std::hypot(Gx, Gy);
-		const double Damp = std::exp(-(GoalDist < Lv.Goal.R ? P.PadDrag : P.Drag) * Dt);
+		const bool bHeld = Gaze != nullptr && Mode == EGazeMode::Attract;
+		const double Damp = std::exp(-((GoalDist < Lv.Goal.R ? P.PadDrag : P.Drag) + (bHeld ? P.PullDrag : 0.0)) * Dt);
 		Vel.X *= Damp;
 		Vel.Y *= Damp;
 		double Speed = std::hypot(Vel.X, Vel.Y);

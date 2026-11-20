@@ -27,6 +27,7 @@ namespace
 	const FLinearColor TableGoalLitColor(0.35f, 1.0f, 0.5f);
 	const FLinearColor TablePuckColor(1.0f, 0.42f, 0.08f);
 	const FLinearColor TableReticleColor(0.5f, 0.83f, 1.0f);
+	const FLinearColor TableReticlePullColor(1.0f, 0.30f, 0.62f);
 
 	UStaticMeshComponent* MakeDisc(AActor* Owner, USceneComponent* Parent, const TCHAR* Name, UStaticMesh* Mesh)
 	{
@@ -230,8 +231,6 @@ void AMindPuckTable::BuildLevel(const MindPuck::FLevel& Level)
 	Puck->SetRelativeScale3D(FVector(PuckScale, PuckScale, TablePuckHeight / 100.0));
 	SetPuck(Level.Start.X, Level.Start.Y);
 
-	const double ReticleScale = TableReticleRadius * 2.0 * UnitScale / 100.0;
-	Reticle->SetRelativeScale3D(FVector(ReticleScale, ReticleScale, 0.01));
 	Reticle->SetVisibility(false);
 	SetGoalLit(false);
 }
@@ -249,6 +248,17 @@ void AMindPuckTable::SetReticle(bool bVisible, double TableX, double TableY)
 	{
 		const FVector2D At = TableToLocal(TableX, TableY);
 		Reticle->SetRelativeLocation(FVector(At.X, At.Y, 2.0));
+	}
+}
+
+void AMindPuckTable::SetReticleStyle(bool bMagnetic)
+{
+	// The engine cylinder is 100 across.
+	const double ReticleScale = TableReticleRadius * (bMagnetic ? 0.6 : 1.0) * 2.0 * UnitScale / 100.0;
+	Reticle->SetRelativeScale3D(FVector(ReticleScale, ReticleScale, 0.01));
+	if (ReticleMaterial)
+	{
+		ReticleMaterial->SetVectorParameterValue(TEXT("Color"), bMagnetic ? TableReticlePullColor : TableReticleColor);
 	}
 }
 

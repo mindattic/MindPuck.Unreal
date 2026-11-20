@@ -27,6 +27,8 @@ namespace MindPuck
 		/** The speed the bot tries to travel at. */
 		double Cruise = 3.2;
 		uint32_t Seed = 1;
+		/** Which way the gaze acts in the game the bot is playing. */
+		EGazeMode Mode = EGazeMode::Repel;
 	};
 
 	/**

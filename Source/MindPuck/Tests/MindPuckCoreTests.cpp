@@ -54,11 +54,13 @@ bool FMindPuckPhysicsTest::RunTest(const FString& Parameters)
 
 	// No gaze: the puck stays where it is.
 	MindPuck::FPuckSim Still(Level);
+	TestTrue(TEXT("magnetic is the default mode"), Still.Mode == MindPuck::EGazeMode::Attract);
 	Still.Advance(0.1, nullptr);
 	TestEqual(TEXT("no gaze, no motion"), Still.Pos.X, 4.0, 1e-12);
 
-	// Looking to the left of the puck pushes it to the right.
+	// Repulsor: looking to the left of the puck pushes it to the right.
 	MindPuck::FPuckSim Pushed(Level);
+	Pushed.Mode = MindPuck::EGazeMode::Repel;
 	const MindPuck::FVec Gaze{ 2.5, 4.5 };
 	for (int32 i = 0; i < 60; i++)
 	{
@@ -71,6 +73,23 @@ bool FMindPuckPhysicsTest::RunTest(const FString& Parameters)
 	const MindPuck::FPhysicsParams Params;
 	TestEqual(TEXT("no push past the range"), MindPuck::RepelAccel(Params.RepelRange, MindPuck::PuckR, Params), 0.0, 0.0);
 	TestEqual(TEXT("no push at dead centre"), MindPuck::RepelAccel(0.0, MindPuck::PuckR, Params), 0.0, 0.0);
+
+	// Magnetic: the same gaze pulls the puck to the left, toward itself, and it settles there.
+	MindPuck::FPuckSim Pulled(Level);
+	Pulled.Mode = MindPuck::EGazeMode::Attract;
+	Pulled.Step(&Gaze);
+	TestTrue(TEXT("the gaze attracts"), Pulled.Vel.X < 0.0 && Pulled.Push.X < 0.0);
+	for (int32 i = 0; i < 1200; i++)
+	{
+		Pulled.Step(&Gaze);
+	}
+	TestEqual(TEXT("the puck settles on the gaze point"), Pulled.Pos.X, Gaze.X, 0.05);
+	TestEqual(TEXT("no sideways drift when pulled"), Pulled.Pos.Y, 4.5, 1e-9);
+
+	// The pull grows like a spring up to PullSoftness, is flat beyond it and has no range limit.
+	TestEqual(TEXT("no pull on the gaze point"), MindPuck::PullAccel(0.0, Params), 0.0, 0.0);
+	TestEqual(TEXT("half pull at half the softness"), MindPuck::PullAccel(Params.PullSoftness * 0.5, Params), Params.PullStrength * 0.5, 1e-12);
+	TestEqual(TEXT("full pull far away"), MindPuck::PullAccel(50.0, Params), Params.PullStrength, 0.0);
 
 	// The walls keep the puck on the table.
 	MindPuck::FPuckSim Thrown(Level);
@@ -107,13 +126,21 @@ bool FMindPuckLevelGenTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("level 6 start x"), Sixth.Start.X, 14.697560, 1e-6);
 	TestEqual(TEXT("level 6 goal y"), Sixth.Goal.Y, 4.865961, 1e-6);
 	TestEqual(TEXT("level 6 par"), Sixth.Par, 4.9, 1e-9);
+	TestEqual(TEXT("level 1 magnetic par"), First.ParAttract, 3.3, 1e-9);
+	TestEqual(TEXT("level 6 magnetic par"), Sixth.ParAttract, 4.5, 1e-9);
 
-	// Whatever the generator returns, the bot can win it again with the seed that proved it.
+	// Whatever the generator returns, the bot can win it again with the seed that proved it, in
+	// both modes. The bot's own default is the repulsor.
 	MindPuck::FBotOptions Options;
+	TestTrue(TEXT("the bot defaults to the repulsor"), Options.Mode == MindPuck::EGazeMode::Repel);
 	Options.Seed = MindPuck::MixSeed(Sixth.Seed, Sixth.Index, 1000 + Sixth.Attempts - 1);
 	const MindPuck::FSolveResult Replay = MindPuck::SolveLevel(Sixth, MindPuck::FPhysicsParams(), Options);
 	TestTrue(TEXT("the proving run repeats"), Replay.bSolved);
 	TestEqual(TEXT("and takes the par time"), FMath::RoundToDouble(Replay.Time * 10.0) / 10.0, Sixth.Par, 1e-9);
+	Options.Mode = MindPuck::EGazeMode::Attract;
+	const MindPuck::FSolveResult MagneticReplay = MindPuck::SolveLevel(Sixth, MindPuck::FPhysicsParams(), Options);
+	TestTrue(TEXT("the magnetic proving run repeats"), MagneticReplay.bSolved);
+	TestEqual(TEXT("and takes the magnetic par time"), FMath::RoundToDouble(MagneticReplay.Time * 10.0) / 10.0, Sixth.ParAttract, 1e-9);
 	return true;
 }
 

@@ -39,6 +39,8 @@ public:
 
 	void SetPuck(double TableX, double TableY);
 	void SetReticle(bool bVisible, double TableX, double TableY);
+	/** The reticle is blue and full size for the repulsor, pink and smaller for the magnet. */
+	void SetReticleStyle(bool bMagnetic);
 	/** Brighten the goal pad, for the moment the level is won. */
 	void SetGoalLit(bool bLit);
 

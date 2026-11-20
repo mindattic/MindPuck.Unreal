@@ -45,8 +45,10 @@ namespace MindPuck
 		double CupAngle = 0.0;
 		/** Everything the puck bounces off, the cup's walls included. */
 		std::vector<FPolygon> Obstacles;
-		/** How long the solver took to win, in seconds. Shown to the player as the time to beat. */
+		/** How long the solver took to win in repulsor mode, in seconds. Shown to the player as the time to beat. */
 		double Par = 0.0;
+		/** The same for magnetic mode. */
+		double ParAttract = 0.0;
 		/** How many candidates were generated before one passed the solver. */
 		int32_t Attempts = 0;
 	};

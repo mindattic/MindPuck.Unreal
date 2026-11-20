@@ -10,6 +10,16 @@
 
 namespace MindPuck
 {
+	/**
+	 * What the gaze does to the puck. Attract (magnetic) pulls the puck to where you look.
+	 * Repel pushes it away: look where you do not want it to go.
+	 */
+	enum class EGazeMode
+	{
+		Attract,
+		Repel,
+	};
+
 	/** Every number that shapes how the table feels. The web repo's docs/DESIGN.md explains each one. */
 	struct FPhysicsParams
 	{
@@ -21,6 +31,12 @@ namespace MindPuck
 		double RepelRange = 6.0;
 		/** Looking at the very centre of the puck pushes nowhere; the push fades in over this fraction of its radius. */
 		double DeadZone = 0.3;
+		/** Magnetic mode: the pull toward the gaze point once the puck is farther than PullSoftness away. */
+		double PullStrength = 14.0;
+		/** Magnetic mode: inside this distance the pull eases off in proportion, like a spring, so the puck settles on the gaze point. */
+		double PullSoftness = 1.5;
+		/** Magnetic mode: extra drag while the gaze holds the puck, which stops it circling the point it is pulled to. */
+		double PullDrag = 3.5;
 		/** Air drag: the fraction of speed lost per second while gliding. */
 		double Drag = 0.55;
 		/** Drag on the goal pad, which is what lets the puck come to rest there. */
@@ -49,6 +65,9 @@ namespace MindPuck
 	 */
 	double RepelAccel(double D, double PuckRadius, const FPhysicsParams& P);
 
+	/** Magnetic mode: how hard the gaze pulls the puck from distance D. Zero when the puck is on the gaze point. */
+	double PullAccel(double D, const FPhysicsParams& P);
+
 	/** The win radius: how close the puck's centre must be to the goal's centre. */
 	double WinRadius(const FLevel& Level);
 
@@ -61,6 +80,8 @@ namespace MindPuck
 	class FPuckSim
 	{
 	public:
+		/** What the gaze does. It can be changed at any time, even mid-flight. */
+		EGazeMode Mode = EGazeMode::Attract;
 		FVec Pos;
 		FVec Vel;
 		/** Seconds simulated since the last reset. */

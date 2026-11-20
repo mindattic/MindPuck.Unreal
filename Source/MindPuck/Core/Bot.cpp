@@ -98,6 +98,14 @@ namespace MindPuck
 		const double ToGoal = std::hypot(Lv.Goal.X - Pos.X, Lv.Goal.Y - Pos.Y);
 		const double Speed = std::hypot(Vel.X, Vel.Y);
 
+		// Magnetic: simply look where the puck should go next. The pull does the rest.
+		if (Options.Mode == EGazeMode::Attract)
+		{
+			Aim.X = Target.X;
+			Aim.Y = Target.Y;
+			return;
+		}
+
 		// Sitting on the pad: look away and let it settle.
 		if (ToGoal < WinRadius(Lv) * 0.7 && Speed < P.RestSpeed * 0.8)
 		{
@@ -185,6 +193,7 @@ namespace MindPuck
 	FSolveResult SolveLevel(const FLevel& Level, const FPhysicsParams& Params, const FBotOptions& Options, const FNavGrid* Grid)
 	{
 		FPuckSim Sim(Level, Params);
+		Sim.Mode = Options.Mode;
 		FSolverBot Bot(Level, Params, Options, Grid);
 		const int MaxSteps = static_cast<int>(std::ceil(Options.TimeLimit / Params.Dt));
 		for (int i = 0; i < MaxSteps; i++)

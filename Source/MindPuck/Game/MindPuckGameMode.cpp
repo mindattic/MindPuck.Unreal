@@ -13,6 +13,7 @@
 #include "MindPuckPlayerController.h"
 #include "MindPuckTable.h"
 #include "Misc/CommandLine.h"
+#include "Misc/ConfigCacheIni.h"
 #include "Misc/DateTime.h"
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
@@ -28,10 +29,10 @@ namespace
 	void LogLevelSummary(const MindPuck::FLevel& Level, double Millis)
 	{
 		UE_LOG(LogMindPuck, Log,
-			TEXT("Level %d (seed %u): %s, %d obstacles, par %.1f s, %d candidates, start (%.6f, %.6f), goal (%.6f, %.6f), generated in %.0f ms"),
+			TEXT("Level %d (seed %u): %s, %d obstacles, par %.1f s, magnetic %.1f s, %d candidates, start (%.6f, %.6f), goal (%.6f, %.6f), generated in %.0f ms"),
 			Level.Index + 1, Level.Seed,
 			Level.Kind == MindPuck::ELevelKind::Cup ? TEXT("cup") : TEXT("zone"),
-			static_cast<int32>(Level.Obstacles.size()), Level.Par, Level.Attempts,
+			static_cast<int32>(Level.Obstacles.size()), Level.Par, Level.ParAttract, Level.Attempts,
 			Level.Start.X, Level.Start.Y, Level.Goal.X, Level.Goal.Y, Millis);
 	}
 }
@@ -66,6 +67,25 @@ void AMindPuckGameMode::StartPlay()
 		LevelIndex = FMath::Max(0, LevelArg - 1);
 	}
 
+	// The gaze mode: the saved choice, or -Mode=attract|repel for this run.
+	FString SavedMode;
+	if (GConfig && GConfig->GetString(TEXT("MindPuck"), TEXT("Mode"), SavedMode, GGameUserSettingsIni) && SavedMode == TEXT("repel"))
+	{
+		GazeMode = MindPuck::EGazeMode::Repel;
+	}
+	FString ModeArg;
+	if (FParse::Value(FCommandLine::Get(), TEXT("Mode="), ModeArg))
+	{
+		if (ModeArg.Equals(TEXT("repel"), ESearchCase::IgnoreCase))
+		{
+			GazeMode = MindPuck::EGazeMode::Repel;
+		}
+		else if (ModeArg.Equals(TEXT("attract"), ESearchCase::IgnoreCase))
+		{
+			GazeMode = MindPuck::EGazeMode::Attract;
+		}
+	}
+
 	Table = GetWorld()->SpawnActor<AMindPuckTable>(AMindPuckTable::StaticClass(), FTransform::Identity);
 	Calibrator = NewObject<UGazeCalibrator>(this);
 	Calibrator->OnFinished.AddDynamic(this, &AMindPuckGameMode::HandleCalibrationFinished);
@@ -84,7 +104,7 @@ void AMindPuckGameMode::StartPlay()
 		Tracker->Connect(Url, Room);
 	}
 
-	UE_LOG(LogMindPuck, Log, TEXT("MindPuck game mode started: seed %u, level %d."), RunSeed, LevelIndex + 1);
+	UE_LOG(LogMindPuck, Log, TEXT("MindPuck game mode started: seed %u, level %d, %s mode."), RunSeed, LevelIndex + 1, IsMagnetic() ? TEXT("magnetic") : TEXT("repulsor"));
 
 	// -DumpLevels=12 logs the first twelve levels of the run, like tools/levels.mjs on the web.
 	int32 DumpCount = 0;
@@ -157,6 +177,7 @@ void AMindPuckGameMode::LoadLevel()
 	LogLevelSummary(CurrentLevel, Millis);
 
 	Sim = MakeUnique<MindPuck::FPuckSim>(CurrentLevel, Params);
+	Sim->Mode = GazeMode;
 	if (bHadBot)
 	{
 		MakeBot();
@@ -164,6 +185,7 @@ void AMindPuckGameMode::LoadLevel()
 	if (Table)
 	{
 		Table->BuildLevel(CurrentLevel);
+		Table->SetReticleStyle(IsMagnetic());
 	}
 	HoldRemaining = HoldSeconds;
 	GoalRemaining = 0.0;
@@ -173,9 +195,10 @@ void AMindPuckGameMode::LoadLevel()
 
 void AMindPuckGameMode::MakeBot()
 {
-	// The bot replays the run that proved the level: the same gaze-noise seed the generator's
-	// check used, so the demo always wins and takes exactly the par time.
+	// The bot replays the run that proved the level in the current mode: the same gaze-noise seed
+	// the generator's check used, so the demo always wins and takes exactly the par time.
 	MindPuck::FBotOptions Options;
+	Options.Mode = GazeMode;
 	Options.Seed = MindPuck::MixSeed(CurrentLevel.Seed, CurrentLevel.Index, 1000 + CurrentLevel.Attempts - 1);
 	Bot = MakeUnique<MindPuck::FSolverBot>(CurrentLevel, Params, Options);
 }
@@ -187,6 +210,7 @@ void AMindPuckGameMode::Restart()
 		return;
 	}
 	Sim->Reset();
+	Sim->Mode = GazeMode;
 	if (Bot)
 	{
 		MakeBot();
@@ -218,6 +242,32 @@ void AMindPuckGameMode::ToggleBot()
 		MakeBot();
 	}
 	Restart();
+}
+
+void AMindPuckGameMode::ToggleMode()
+{
+	GazeMode = IsMagnetic() ? MindPuck::EGazeMode::Repel : MindPuck::EGazeMode::Attract;
+	if (GConfig)
+	{
+		GConfig->SetString(TEXT("MindPuck"), TEXT("Mode"), IsMagnetic() ? TEXT("attract") : TEXT("repel"), GGameUserSettingsIni);
+		GConfig->Flush(false, GGameUserSettingsIni);
+	}
+	UE_LOG(LogMindPuck, Log, TEXT("Mode switched to %s."), IsMagnetic() ? TEXT("magnetic") : TEXT("repulsor"));
+	ApplyMode();
+	Restart();
+	Flash(IsMagnetic() ? TEXT("Magnetic: the puck goes to where you look.") : TEXT("Repulsor: the puck is pushed away from where you look."));
+}
+
+void AMindPuckGameMode::ApplyMode()
+{
+	if (Sim)
+	{
+		Sim->Mode = GazeMode;
+	}
+	if (Table)
+	{
+		Table->SetReticleStyle(IsMagnetic());
+	}
 }
 
 void AMindPuckGameMode::ToggleMouse()
@@ -342,6 +392,11 @@ void AMindPuckGameMode::HandleKeys(APlayerController* Player)
 	if (Calibrator && Calibrator->IsActive())
 	{
 		return;
+	}
+	// F1 as on the web. Tab does the same, because the editor keeps F1 for itself in Play In Editor.
+	if (Player->WasInputKeyJustPressed(EKeys::F1) || Player->WasInputKeyJustPressed(EKeys::Tab))
+	{
+		ToggleMode();
 	}
 	if (Player->WasInputKeyJustPressed(EKeys::R))
 	{
@@ -489,20 +544,20 @@ void AMindPuckGameMode::Tick(float DeltaSeconds)
 
 			if (Sim->bWon)
 			{
-				UE_LOG(LogMindPuck, Log, TEXT("Level %d won by %s in %.1f s (par %.1f s)."),
-					LevelIndex + 1, Bot ? TEXT("the solver bot") : TEXT("the player"), Sim->Time, CurrentLevel.Par);
+				UE_LOG(LogMindPuck, Log, TEXT("Level %d won by %s in %s mode in %.1f s (par %.1f s)."),
+					LevelIndex + 1, Bot ? TEXT("the solver bot") : TEXT("the player"), IsMagnetic() ? TEXT("magnetic") : TEXT("repulsor"), Sim->Time, GetPar());
 				GoalRemaining = GoalSeconds;
 				if (Bot)
 				{
 					GoalDetail = FString::Printf(TEXT("The solver took %.1f s"), Sim->Time);
 				}
-				else if (Sim->Time <= CurrentLevel.Par)
+				else if (Sim->Time <= GetPar())
 				{
 					GoalDetail = FString::Printf(TEXT("%.1f s, under par"), Sim->Time);
 				}
 				else
 				{
-					GoalDetail = FString::Printf(TEXT("%.1f s (par %.1f s)"), Sim->Time, CurrentLevel.Par);
+					GoalDetail = FString::Printf(TEXT("%.1f s (par %.1f s)"), Sim->Time, GetPar());
 				}
 				if (Table)
 				{
@@ -540,7 +595,9 @@ FString AMindPuckGameMode::GetStatusText(bool& bOutWarning) const
 	}
 	if (Bot)
 	{
-		return TEXT("The solver is playing. Watch where it looks: behind the puck, never at the goal.");
+		return IsMagnetic()
+			? TEXT("The solver is playing. Watch where it looks: along the route, a step ahead of the puck.")
+			: TEXT("The solver is playing. Watch where it looks: behind the puck, never at the goal.");
 	}
 	if (!TrackerPresent())
 	{
@@ -549,7 +606,9 @@ FString AMindPuckGameMode::GetStatusText(bool& bOutWarning) const
 	}
 	if (bMouseStandIn)
 	{
-		return TEXT("Mouse stand-in: the pointer is your gaze. Press M to use the eye tracker.");
+		return IsMagnetic()
+			? TEXT("Mouse stand-in: the pointer is your gaze, the puck follows it. Press M to use the eye tracker.")
+			: TEXT("Mouse stand-in: the pointer is your gaze, keep it behind the puck. Press M to use the eye tracker.");
 	}
 	if (Tracker->HasSample() && !Tracker->GetLatest().bFace)
 	{
@@ -561,5 +620,7 @@ FString AMindPuckGameMode::GetStatusText(bool& bOutWarning) const
 		bOutWarning = true;
 		return TEXT("Eye tracker: not calibrated yet, press C. Until then the gaze point is a rough guess.");
 	}
-	return TEXT("Eye tracker: look behind the puck to push it. Look far away to let it glide.");
+	return IsMagnetic()
+		? TEXT("Eye tracker: look where you want the puck to go. To win, look at the pad.")
+		: TEXT("Eye tracker: look behind the puck to push it. Look far away to let it glide.");
 }

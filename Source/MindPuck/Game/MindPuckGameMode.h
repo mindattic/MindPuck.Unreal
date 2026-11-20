@@ -35,6 +35,8 @@ public:
 	void ToggleBot();
 	/** Use the mouse as the gaze even when a tracker is connected, or stop doing so. */
 	void ToggleMouse();
+	/** Switch between magnetic and repulsor, remember the choice, and restart the attempt. */
+	void ToggleMode();
 	/** Start the calibration, or cancel the one in progress. */
 	void Calibrate();
 
@@ -42,7 +44,10 @@ public:
 	int32 GetLevelNumber() const { return LevelIndex + 1; }
 	uint32 GetSeed() const { return RunSeed; }
 	double GetTime() const { return Sim ? Sim->Time : 0.0; }
-	double GetPar() const { return CurrentLevel.Par; }
+	/** The solver's time in the mode being played. */
+	double GetPar() const { return IsMagnetic() ? CurrentLevel.ParAttract : CurrentLevel.Par; }
+	/** True in magnetic mode (the gaze pulls), false in repulsor mode (the gaze pushes). */
+	bool IsMagnetic() const { return GazeMode == MindPuck::EGazeMode::Attract; }
 	bool IsWon() const { return Sim && Sim->bWon; }
 	bool IsBotPlaying() const { return Bot.IsValid(); }
 	bool IsHolding() const { return HoldRemaining > 0.0; }
@@ -99,6 +104,10 @@ private:
 	// The simulation and the bot refer to CurrentLevel, so they are rebuilt whenever it changes.
 	TUniquePtr<MindPuck::FPuckSim> Sim;
 	TUniquePtr<MindPuck::FSolverBot> Bot;
+
+	/** Magnetic is the default. The choice is kept in GameUserSettings.ini, section MindPuck. */
+	MindPuck::EGazeMode GazeMode = MindPuck::EGazeMode::Attract;
+	void ApplyMode();
 
 	bool bMouseStandIn = false;
 	bool bFramed = false;

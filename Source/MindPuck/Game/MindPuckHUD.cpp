@@ -16,6 +16,7 @@ namespace
 	const FLinearColor HudWarn(1.0f, 0.72f, 0.25f);
 	const FLinearColor HudAccent(0.5f, 0.83f, 1.0f);
 	const FLinearColor HudGoal(0.45f, 1.0f, 0.6f);
+	const FLinearColor HudPull(1.0f, 0.45f, 0.72f);
 	const FLinearColor HudCover(0.02f, 0.027f, 0.05f, 1.0f);
 }
 
@@ -131,7 +132,8 @@ void AMindPuckHUD::DrawHUD()
 			FVector2D Screen;
 			if (Player->ProjectWorldLocationToScreen(Table->TableToWorld(GazeOnTable.X, GazeOnTable.Y, AMindPuckTable::GazePlaneHeight), Screen))
 			{
-				DrawRing(Screen, 18.0 * Scale, HudAccent, 2.0 * Scale);
+				// Blue and wide for the repulsor, pink and smaller for the magnet.
+				DrawRing(Screen, (Game->IsMagnetic() ? 11.0 : 18.0) * Scale, Game->IsMagnetic() ? HudPull : HudAccent, 2.0 * Scale);
 			}
 		}
 	}
@@ -142,6 +144,8 @@ void AMindPuckHUD::DrawHUD()
 	const bool bBeat = Game->IsWon() && !Game->IsBotPlaying() && Game->GetTime() <= Game->GetPar();
 	DrawLabel(FString::Printf(TEXT("Time %.1f s"), Game->GetTime()), bBeat ? HudGoal : HudText, Pad, Pad + 44.0 * Scale, Medium, 1.5 * Scale);
 	DrawLabel(FString::Printf(TEXT("Par %.1f s"), Game->GetPar()), HudDim, Pad, Pad + 74.0 * Scale, Medium, 1.5 * Scale);
+
+	DrawLabel(Game->IsMagnetic() ? TEXT("Magnetic") : TEXT("Repulsor"), Game->IsMagnetic() ? HudPull : HudAccent, Pad, Pad + 108.0 * Scale, Medium, 1.5 * Scale);
 
 	// Top right: the run's seed, so a run can be started again with -Seed=.
 	{
@@ -155,7 +159,7 @@ void AMindPuckHUD::DrawHUD()
 	// Bottom: where the gaze comes from, then the keys.
 	bool bWarning = false;
 	const FString Status = Game->GetStatusText(bWarning);
-	const FString Keys = TEXT("R restart    N skip    B bot demo    C calibrate    M mouse stand-in");
+	const FString Keys = TEXT("F1 or Tab mode    R restart    N skip    B bot demo    C calibrate    M mouse stand-in");
 	{
 		// A dark plate behind the two lines, because they sit over the table's bottom rail.
 		float StatusW = 0.f;
