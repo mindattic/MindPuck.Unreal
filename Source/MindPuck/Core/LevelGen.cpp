@@ -207,11 +207,12 @@ namespace MindPuck
 			Level.Obstacles = std::move(Obstacles);
 			Level.Par = 0.0;
 			Level.ParAttract = 0.0;
+			Level.ParSteer = 0.0;
 			Level.Attempts = 0;
 			return Level;
 		}
 
-		/** Route check first (cheap), then the bot actually plays it, in both modes. Fills in the pars and Attempts. */
+		/** Route check first (cheap), then the bot actually plays it, in every mode. Fills in the pars and Attempts. */
 		bool Verify(FLevel& Level, const FPhysicsParams& Params, int32_t Attempt)
 		{
 			const FNavGrid Grid(Level);
@@ -220,7 +221,7 @@ namespace MindPuck
 			{
 				return false;
 			}
-			// The level has to be winnable both ways the game can be played.
+			// The level has to be winnable every way the game can be played.
 			FBotOptions Options;
 			Options.Seed = MixSeed(Level.Seed, Level.Index, 1000 + Attempt);
 			Options.Mode = EGazeMode::Repel;
@@ -235,7 +236,14 @@ namespace MindPuck
 			{
 				return false;
 			}
+			Options.Mode = EGazeMode::Steer;
+			const FSolveResult Steered = SolveLevel(Level, Params, Options, &Grid);
+			if (!Steered.bSolved)
+			{
+				return false;
+			}
 			Level.Par = JsRound(Result.Time * 10) / 10;
+			Level.ParSteer = JsRound(Steered.Time * 10) / 10;
 			Level.ParAttract = JsRound(Pulled.Time * 10) / 10;
 			Level.Attempts = Attempt + 1;
 			return true;

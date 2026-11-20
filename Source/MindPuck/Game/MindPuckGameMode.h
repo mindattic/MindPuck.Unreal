@@ -35,7 +35,7 @@ public:
 	void ToggleBot();
 	/** Use the mouse as the gaze even when a tracker is connected, or stop doing so. */
 	void ToggleMouse();
-	/** Switch between magnetic and repulsor, remember the choice, and restart the attempt. */
+	/** Step to the next mode (magnetic, steer, repulsor), remember the choice, and restart the attempt. */
 	void ToggleMode();
 	/** Start the calibration, or cancel the one in progress. */
 	void Calibrate();
@@ -45,9 +45,14 @@ public:
 	uint32 GetSeed() const { return RunSeed; }
 	double GetTime() const { return Sim ? Sim->Time : 0.0; }
 	/** The solver's time in the mode being played. */
-	double GetPar() const { return IsMagnetic() ? CurrentLevel.ParAttract : CurrentLevel.Par; }
-	/** True in magnetic mode (the gaze pulls), false in repulsor mode (the gaze pushes). */
-	bool IsMagnetic() const { return GazeMode == MindPuck::EGazeMode::Attract; }
+	double GetPar() const;
+	MindPuck::EGazeMode GetMode() const { return GazeMode; }
+	/** The place of the current mode in the order F1 steps through, starting at 1. */
+	int32 GetModeNumber() const;
+	/** "Magnetic", "Steer" or "Repulsor". */
+	static const TCHAR* ModeName(MindPuck::EGazeMode Mode);
+	/** Pink for magnetic, green for steer, blue for the repulsor. */
+	static FLinearColor ModeColor(MindPuck::EGazeMode Mode);
 	bool IsWon() const { return Sim && Sim->bWon; }
 	bool IsBotPlaying() const { return Bot.IsValid(); }
 	bool IsHolding() const { return HoldRemaining > 0.0; }

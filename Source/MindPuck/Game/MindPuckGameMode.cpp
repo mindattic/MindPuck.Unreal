@@ -21,6 +21,32 @@
 
 namespace
 {
+	/** The name a mode is saved under and given on the command line. */
+	const TCHAR* ModeKey(MindPuck::EGazeMode Mode)
+	{
+		return Mode == MindPuck::EGazeMode::Attract ? TEXT("attract") : Mode == MindPuck::EGazeMode::Steer ? TEXT("steer") : TEXT("repel");
+	}
+
+	bool ParseMode(const FString& Text, MindPuck::EGazeMode& OutMode)
+	{
+		for (const MindPuck::EGazeMode Candidate : MindPuck::GazeModes)
+		{
+			if (Text.Equals(ModeKey(Candidate), ESearchCase::IgnoreCase))
+			{
+				OutMode = Candidate;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	const TCHAR* ModeHelp(MindPuck::EGazeMode Mode)
+	{
+		return Mode == MindPuck::EGazeMode::Attract ? TEXT("Magnetic: the puck goes to where you look.")
+			: Mode == MindPuck::EGazeMode::Steer ? TEXT("Steer: look at the edge of the puck on the side it should go. Look at its centre to let it be.")
+			: TEXT("Repulsor: the puck is pushed away from where you look.");
+	}
+
 	const double GameRailWidth = 0.4; // table units, the same as the table actor's rails
 
 	// One line per level, with enough digits to compare against the web core's output for the
@@ -29,10 +55,10 @@ namespace
 	void LogLevelSummary(const MindPuck::FLevel& Level, double Millis)
 	{
 		UE_LOG(LogMindPuck, Log,
-			TEXT("Level %d (seed %u): %s, %d obstacles, par %.1f s, magnetic %.1f s, %d candidates, start (%.6f, %.6f), goal (%.6f, %.6f), generated in %.0f ms"),
+			TEXT("Level %d (seed %u): %s, %d obstacles, par %.1f s, magnetic %.1f s, steer %.1f s, %d candidates, start (%.6f, %.6f), goal (%.6f, %.6f), generated in %.0f ms"),
 			Level.Index + 1, Level.Seed,
 			Level.Kind == MindPuck::ELevelKind::Cup ? TEXT("cup") : TEXT("zone"),
-			static_cast<int32>(Level.Obstacles.size()), Level.Par, Level.ParAttract, Level.Attempts,
+			static_cast<int32>(Level.Obstacles.size()), Level.Par, Level.ParAttract, Level.ParSteer, Level.Attempts,
 			Level.Start.X, Level.Start.Y, Level.Goal.X, Level.Goal.Y, Millis);
 	}
 }
@@ -67,23 +93,16 @@ void AMindPuckGameMode::StartPlay()
 		LevelIndex = FMath::Max(0, LevelArg - 1);
 	}
 
-	// The gaze mode: the saved choice, or -Mode=attract|repel for this run.
+	// The gaze mode: the saved choice, or -Mode=attract|steer|repel for this run.
 	FString SavedMode;
-	if (GConfig && GConfig->GetString(TEXT("MindPuck"), TEXT("Mode"), SavedMode, GGameUserSettingsIni) && SavedMode == TEXT("repel"))
+	if (GConfig && GConfig->GetString(TEXT("MindPuck"), TEXT("Mode"), SavedMode, GGameUserSettingsIni))
 	{
-		GazeMode = MindPuck::EGazeMode::Repel;
+		ParseMode(SavedMode, GazeMode);
 	}
 	FString ModeArg;
 	if (FParse::Value(FCommandLine::Get(), TEXT("Mode="), ModeArg))
 	{
-		if (ModeArg.Equals(TEXT("repel"), ESearchCase::IgnoreCase))
-		{
-			GazeMode = MindPuck::EGazeMode::Repel;
-		}
-		else if (ModeArg.Equals(TEXT("attract"), ESearchCase::IgnoreCase))
-		{
-			GazeMode = MindPuck::EGazeMode::Attract;
-		}
+		ParseMode(ModeArg, GazeMode);
 	}
 
 	Table = GetWorld()->SpawnActor<AMindPuckTable>(AMindPuckTable::StaticClass(), FTransform::Identity);
@@ -104,7 +123,7 @@ void AMindPuckGameMode::StartPlay()
 		Tracker->Connect(Url, Room);
 	}
 
-	UE_LOG(LogMindPuck, Log, TEXT("MindPuck game mode started: seed %u, level %d, %s mode."), RunSeed, LevelIndex + 1, IsMagnetic() ? TEXT("magnetic") : TEXT("repulsor"));
+	UE_LOG(LogMindPuck, Log, TEXT("MindPuck game mode started: seed %u, level %d, %s mode."), RunSeed, LevelIndex + 1, ModeKey(GazeMode));
 
 	// -DumpLevels=12 logs the first twelve levels of the run, like tools/levels.mjs on the web.
 	int32 DumpCount = 0;
@@ -185,7 +204,7 @@ void AMindPuckGameMode::LoadLevel()
 	if (Table)
 	{
 		Table->BuildLevel(CurrentLevel);
-		Table->SetReticleStyle(IsMagnetic());
+		Table->SetReticleStyle(ModeColor(GazeMode), GazeMode == MindPuck::EGazeMode::Repel ? 1.0 : GazeMode == MindPuck::EGazeMode::Steer ? 0.45 : 0.6);
 	}
 	HoldRemaining = HoldSeconds;
 	GoalRemaining = 0.0;
@@ -246,16 +265,48 @@ void AMindPuckGameMode::ToggleBot()
 
 void AMindPuckGameMode::ToggleMode()
 {
-	GazeMode = IsMagnetic() ? MindPuck::EGazeMode::Repel : MindPuck::EGazeMode::Attract;
+	GazeMode = MindPuck::GazeModes[GetModeNumber() % MindPuck::GazeModeCount];
 	if (GConfig)
 	{
-		GConfig->SetString(TEXT("MindPuck"), TEXT("Mode"), IsMagnetic() ? TEXT("attract") : TEXT("repel"), GGameUserSettingsIni);
+		GConfig->SetString(TEXT("MindPuck"), TEXT("Mode"), ModeKey(GazeMode), GGameUserSettingsIni);
 		GConfig->Flush(false, GGameUserSettingsIni);
 	}
-	UE_LOG(LogMindPuck, Log, TEXT("Mode switched to %s."), IsMagnetic() ? TEXT("magnetic") : TEXT("repulsor"));
+	UE_LOG(LogMindPuck, Log, TEXT("Mode switched to %s."), ModeKey(GazeMode));
 	ApplyMode();
 	Restart();
-	Flash(IsMagnetic() ? TEXT("Magnetic: the puck goes to where you look.") : TEXT("Repulsor: the puck is pushed away from where you look."));
+	Flash(ModeHelp(GazeMode));
+}
+
+double AMindPuckGameMode::GetPar() const
+{
+	return GazeMode == MindPuck::EGazeMode::Attract ? CurrentLevel.ParAttract
+		: GazeMode == MindPuck::EGazeMode::Steer ? CurrentLevel.ParSteer
+		: CurrentLevel.Par;
+}
+
+int32 AMindPuckGameMode::GetModeNumber() const
+{
+	for (int32 Index = 0; Index < MindPuck::GazeModeCount; Index++)
+	{
+		if (MindPuck::GazeModes[Index] == GazeMode)
+		{
+			return Index + 1;
+		}
+	}
+	return 1;
+}
+
+const TCHAR* AMindPuckGameMode::ModeName(MindPuck::EGazeMode Mode)
+{
+	return Mode == MindPuck::EGazeMode::Attract ? TEXT("Magnetic") : Mode == MindPuck::EGazeMode::Steer ? TEXT("Steer") : TEXT("Repulsor");
+}
+
+FLinearColor AMindPuckGameMode::ModeColor(MindPuck::EGazeMode Mode)
+{
+	// The web's #ff9ad5, #5fe3a1 and #7fd4ff.
+	return Mode == MindPuck::EGazeMode::Attract ? FLinearColor(FColor(0xff, 0x9a, 0xd5))
+		: Mode == MindPuck::EGazeMode::Steer ? FLinearColor(FColor(0x5f, 0xe3, 0xa1))
+		: FLinearColor(FColor(0x7f, 0xd4, 0xff));
 }
 
 void AMindPuckGameMode::ApplyMode()
@@ -266,7 +317,7 @@ void AMindPuckGameMode::ApplyMode()
 	}
 	if (Table)
 	{
-		Table->SetReticleStyle(IsMagnetic());
+		Table->SetReticleStyle(ModeColor(GazeMode), GazeMode == MindPuck::EGazeMode::Repel ? 1.0 : GazeMode == MindPuck::EGazeMode::Steer ? 0.45 : 0.6);
 	}
 }
 
@@ -393,7 +444,7 @@ void AMindPuckGameMode::HandleKeys(APlayerController* Player)
 	{
 		return;
 	}
-	// F1 as on the web. Tab does the same, because the editor keeps F1 for itself in Play In Editor.
+	// F1 steps to the next mode, as on the web. Tab does the same, because the editor keeps F1 for itself in Play In Editor.
 	if (Player->WasInputKeyJustPressed(EKeys::F1) || Player->WasInputKeyJustPressed(EKeys::Tab))
 	{
 		ToggleMode();
@@ -545,7 +596,7 @@ void AMindPuckGameMode::Tick(float DeltaSeconds)
 			if (Sim->bWon)
 			{
 				UE_LOG(LogMindPuck, Log, TEXT("Level %d won by %s in %s mode in %.1f s (par %.1f s)."),
-					LevelIndex + 1, Bot ? TEXT("the solver bot") : TEXT("the player"), IsMagnetic() ? TEXT("magnetic") : TEXT("repulsor"), Sim->Time, GetPar());
+					LevelIndex + 1, Bot ? TEXT("the solver bot") : TEXT("the player"), ModeKey(GazeMode), Sim->Time, GetPar());
 				GoalRemaining = GoalSeconds;
 				if (Bot)
 				{
@@ -595,8 +646,8 @@ FString AMindPuckGameMode::GetStatusText(bool& bOutWarning) const
 	}
 	if (Bot)
 	{
-		return IsMagnetic()
-			? TEXT("The solver is playing. Watch where it looks: along the route, a step ahead of the puck.")
+		return GazeMode == MindPuck::EGazeMode::Attract ? TEXT("The solver is playing. Watch where it looks: along the route, a step ahead of the puck.")
+			: GazeMode == MindPuck::EGazeMode::Steer ? TEXT("The solver is playing. Watch where it looks: just off the puck, on the side it wants it to go.")
 			: TEXT("The solver is playing. Watch where it looks: behind the puck, never at the goal.");
 	}
 	if (!TrackerPresent())
@@ -606,9 +657,7 @@ FString AMindPuckGameMode::GetStatusText(bool& bOutWarning) const
 	}
 	if (bMouseStandIn)
 	{
-		return IsMagnetic()
-			? TEXT("Mouse stand-in: the pointer is your gaze, the puck follows it. Press M to use the eye tracker.")
-			: TEXT("Mouse stand-in: the pointer is your gaze, keep it behind the puck. Press M to use the eye tracker.");
+		return FString::Printf(TEXT("Mouse stand-in (M for the eye tracker). %s"), ModeHelp(GazeMode));
 	}
 	if (Tracker->HasSample() && !Tracker->GetLatest().bFace)
 	{
@@ -620,7 +669,5 @@ FString AMindPuckGameMode::GetStatusText(bool& bOutWarning) const
 		bOutWarning = true;
 		return TEXT("Eye tracker: not calibrated yet, press C. Until then the gaze point is a rough guess.");
 	}
-	return IsMagnetic()
-		? TEXT("Eye tracker: look where you want the puck to go. To win, look at the pad.")
-		: TEXT("Eye tracker: look behind the puck to push it. Look far away to let it glide.");
+	return FString::Printf(TEXT("Eye tracker. %s"), ModeHelp(GazeMode));
 }

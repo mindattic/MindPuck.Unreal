@@ -2,16 +2,19 @@
 
 MindPuck for Unreal Engine 5.8: move a puck into the goal with your eyes.
 
-A puck sits on an air-hockey table and your gaze moves it. There are two modes, switched with F1
-(or Tab):
+A puck sits on an air-hockey table and your gaze moves it. There are three control schemes. F1
+(or Tab) steps through them, and a label at the bottom centre of the screen always names the one
+that is live ("Mode 2 of 3  STEER  F1 next"):
 
-- **Magnetic** (the default): the puck is pulled to where you look. To win, look at the pad.
-- **Repulsor**: the point you look at pushes the puck away, like a black hole in reverse. Look
-  behind the puck to push it, and look far away to let it glide.
+1. **Magnetic** (the default): the puck is pulled to where you look. To win, look at the pad.
+2. **Steer**: look at the edge of the puck on the side it should go, and it travels that way. Look
+   at its centre to let it be. Your eyes stay on the puck the whole time.
+3. **Repulsor**: the point you look at pushes the puck away, like a black hole in reverse. Look
+   behind the puck to push it, and look far away to let it glide.
 
 Bring the puck to rest on the green pad. Every level is generated from a seed, and a solver bot
-wins each one in both modes, with an unsteady gaze, before you see it, so every level is known to
-be possible either way. The bot's time in the mode you are playing is the par.
+wins each one in all three modes, with an unsteady gaze, before you see it, so every level is known
+to be possible each way. The bot's time in the mode you are playing is the par.
 
 The gaze comes from a webcam through [MindAttic.EyeTracker](../MindAttic.EyeTracker). With no
 tracker connected the mouse stands in, so the game is playable without a camera.
@@ -54,7 +57,7 @@ ported.
 | `-Seed=12345` | Play this run. Without it the seed is random; it is shown top right. |
 | `-Level=6` | Start at this level (the first is 1). |
 | `-Bot` | Start with the solver bot playing. |
-| `-Mode=attract` or `-Mode=repel` | Play this run in magnetic or repulsor mode, whatever was saved. |
+| `-Mode=attract`, `-Mode=steer` or `-Mode=repel` | Play this run in that mode, whatever was saved. |
 | `-GazeUrl=ws://host:8787/gaze` | The bridge to connect to. |
 | `-GazeRoom=name` | The bridge room. |
 | `-Calibrate` | Start a calibration as soon as a tracker is present. |
@@ -66,7 +69,7 @@ ported.
 
 | Key | Action |
 | --- | --- |
-| F1 or Tab | Switch between magnetic and repulsor. The attempt restarts. |
+| F1 or Tab | Step to the next mode: magnetic, steer, repulsor. The attempt restarts. |
 | R | Restart the level |
 | N | Skip to the next level |
 | B | Bot demo: the solver plays, and its route and gaze are drawn |
@@ -74,9 +77,14 @@ ported.
 | M | Mouse stand-in on or off while a tracker is connected |
 
 The mode is remembered between runs (`Mode` in the `[MindPuck]` section of
-`Saved/Config/.../GameUserSettings.ini`). The HUD names the mode and shows its par, and the gaze
-reticle is blue for the repulsor and pink and smaller for the magnet. The editor keeps F1 for
+`Saved/Config/.../GameUserSettings.ini`). The mode label, the gaze reticle and the ring around it
+share the mode's colour: pink for magnetic, green for steer, blue for the repulsor. The reticle is
+full size for the repulsor, smaller for the magnet and smallest for steer. The editor keeps F1 for
 itself during Play In Editor, so use Tab there.
+
+Calibration (C) shows nine dots, then three head-movement steps with an amber dot: keep your eyes
+on the dot and move your head as the text says. Those steps teach the tracker to allow for head
+movement.
 
 The mouse is the gaze whenever no tracker is connected, and the status line says so:
 "waiting for tracker - open http://localhost:8787/tracker/".
@@ -124,7 +132,7 @@ Each file in `Source/MindPuck/Core` ports the file of the same name in `MindPuck
 | `rng.ts` | `Rng.h/.cpp` | `mulberry32`, `mixSeed`, `range`, `gaussian` |
 | `geometry.ts` | `Geometry.h/.cpp` | Points, polygons, distances, the shape builders |
 | `level.ts` | `Level.h` | The table's constants and `FLevel` |
-| `physics.ts` | `Physics.h/.cpp` | `EGazeMode`, `FPhysicsParams`, `RepelAccel`, `PullAccel`, `FPuckSim` |
+| `physics.ts` | `Physics.h/.cpp` | `EGazeMode`, `FPhysicsParams`, `RepelAccel`, `PullAccel`, `SteerAccel`, `FPuckSim` |
 | `navgrid.ts` | `NavGrid.h/.cpp` | `FNavGrid`: the free-cell grid and A* |
 | `bot.ts` | `Bot.h/.cpp` | `FSolverBot`, `SolveLevel` |
 | `levelgen.ts` | `LevelGen.h/.cpp` | `GenerateLevel` and its solver check |
@@ -148,11 +156,12 @@ The module is compiled with strict IEEE floating point (`FPSemantics = Precise` 
 `exp` and `hypot`, which differ between JavaScript engines and the C++ runtime. The bot's run is a
 long chaotic simulation, so one such bit can change its time. `-DumpLevels` exists to check this.
 
-Measured for seed 12345, levels 1 to 12, before magnetic mode was added: every level had the same
+Measured for seed 12345, levels 1 to 12, when only the repulsor existed: every level had the same
 kind, start, goal and obstacle count as the web, and the same repulsor par for all but level 12,
-where the bot took 19.5 s here and 15.2 s on the web. The magnetic pars have not been compared
-yet. The web's figures for the same run are printed by `node tools/levels.mjs 12345 12` in
-MindPuck.Web.
+where the bot took 19.5 s here and 15.2 s on the web. The magnetic and steer pars were
+compared on 2026-11-19 with the three-mode generator and matched the web for all twelve levels
+(steer zone 1.5 to 4 radii). The web's figures for the same run are printed by `node tools/levels.mjs 12345 12`
+in MindPuck.Web.
 
 Two things the game layer does differently from the web's `main.ts`:
 

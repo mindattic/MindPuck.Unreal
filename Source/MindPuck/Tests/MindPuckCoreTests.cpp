@@ -91,6 +91,36 @@ bool FMindPuckPhysicsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("half pull at half the softness"), MindPuck::PullAccel(Params.PullSoftness * 0.5, Params), Params.PullStrength * 0.5, 1e-12);
 	TestEqual(TEXT("full pull far away"), MindPuck::PullAccel(50.0, Params), Params.PullStrength, 0.0);
 
+	// Steer: nothing at the centre of the puck, full from SteerFull radii out to SteerRange radii,
+	// then fading to nothing at one and a half times that.
+	const double PuckRadius = MindPuck::PuckR;
+	TestEqual(TEXT("no steer at the centre"), MindPuck::SteerAccel(0.0, PuckRadius, Params), 0.0, 0.0);
+	TestEqual(TEXT("full steer at the full radius"), MindPuck::SteerAccel(PuckRadius * Params.SteerFull, PuckRadius, Params), Params.SteerStrength, 1e-9);
+	TestEqual(TEXT("full steer at the range"), MindPuck::SteerAccel(PuckRadius * Params.SteerRange, PuckRadius, Params), Params.SteerStrength, 0.0);
+	TestEqual(TEXT("no steer past the fade"), MindPuck::SteerAccel(PuckRadius * Params.SteerRange * 1.5, PuckRadius, Params), 0.0, 0.0);
+	TestEqual(TEXT("no steer far away"), MindPuck::SteerAccel(20.0, PuckRadius, Params), 0.0, 0.0);
+
+	// Looking at the right edge of the puck drives it to the right; looking at its centre does nothing.
+	MindPuck::FPuckSim Steered(Level);
+	Steered.Mode = MindPuck::EGazeMode::Steer;
+	for (int32 i = 0; i < 60; i++)
+	{
+		const MindPuck::FVec Edge{ Steered.Pos.X + PuckRadius, Steered.Pos.Y };
+		Steered.Step(&Edge);
+	}
+	TestTrue(TEXT("steer drives toward the side looked at"), Steered.Pos.X > 4.0 && Steered.Vel.X > 0.0);
+	MindPuck::FPuckSim Rested(Level);
+	Rested.Mode = MindPuck::EGazeMode::Steer;
+	for (int32 i = 0; i < 60; i++)
+	{
+		Rested.Step(&Rested.Pos);
+	}
+	TestEqual(TEXT("looking at the centre lets the puck be"), Rested.Pos.X, 4.0, 1e-12);
+
+	// The order F1 steps through.
+	TestTrue(TEXT("mode order"), MindPuck::GazeModes[0] == MindPuck::EGazeMode::Attract &&
+		MindPuck::GazeModes[1] == MindPuck::EGazeMode::Steer && MindPuck::GazeModes[2] == MindPuck::EGazeMode::Repel);
+
 	// The walls keep the puck on the table.
 	MindPuck::FPuckSim Thrown(Level);
 	Thrown.Vel = MindPuck::FVec{ -14.0, -9.0 };
@@ -141,6 +171,13 @@ bool FMindPuckLevelGenTest::RunTest(const FString& Parameters)
 	const MindPuck::FSolveResult MagneticReplay = MindPuck::SolveLevel(Sixth, MindPuck::FPhysicsParams(), Options);
 	TestTrue(TEXT("the magnetic proving run repeats"), MagneticReplay.bSolved);
 	TestEqual(TEXT("and takes the magnetic par time"), FMath::RoundToDouble(MagneticReplay.Time * 10.0) / 10.0, Sixth.ParAttract, 1e-9);
+
+	TestEqual(TEXT("level 1 steer par"), First.ParSteer, 4.7, 1e-9);
+	TestEqual(TEXT("level 6 steer par"), Sixth.ParSteer, 6.2, 1e-9);
+	Options.Mode = MindPuck::EGazeMode::Steer;
+	const MindPuck::FSolveResult SteerReplay = MindPuck::SolveLevel(Sixth, MindPuck::FPhysicsParams(), Options);
+	TestTrue(TEXT("the steer proving run repeats"), SteerReplay.bSolved);
+	TestEqual(TEXT("and takes the steer par time"), FMath::RoundToDouble(SteerReplay.Time * 10.0) / 10.0, Sixth.ParSteer, 1e-9);
 	return true;
 }
 

@@ -49,6 +49,8 @@ namespace MindPuck
 		double Par = 0.0;
 		/** The same for magnetic mode. */
 		double ParAttract = 0.0;
+		/** The same for steer mode. */
+		double ParSteer = 0.0;
 		/** How many candidates were generated before one passed the solver. */
 		int32_t Attempts = 0;
 	};

@@ -27,7 +27,6 @@ namespace
 	const FLinearColor TableGoalLitColor(0.35f, 1.0f, 0.5f);
 	const FLinearColor TablePuckColor(1.0f, 0.42f, 0.08f);
 	const FLinearColor TableReticleColor(0.5f, 0.83f, 1.0f);
-	const FLinearColor TableReticlePullColor(1.0f, 0.30f, 0.62f);
 
 	UStaticMeshComponent* MakeDisc(AActor* Owner, USceneComponent* Parent, const TCHAR* Name, UStaticMesh* Mesh)
 	{
@@ -251,14 +250,14 @@ void AMindPuckTable::SetReticle(bool bVisible, double TableX, double TableY)
 	}
 }
 
-void AMindPuckTable::SetReticleStyle(bool bMagnetic)
+void AMindPuckTable::SetReticleStyle(const FLinearColor& Color, double Size)
 {
 	// The engine cylinder is 100 across.
-	const double ReticleScale = TableReticleRadius * (bMagnetic ? 0.6 : 1.0) * 2.0 * UnitScale / 100.0;
+	const double ReticleScale = TableReticleRadius * Size * 2.0 * UnitScale / 100.0;
 	Reticle->SetRelativeScale3D(FVector(ReticleScale, ReticleScale, 0.01));
 	if (ReticleMaterial)
 	{
-		ReticleMaterial->SetVectorParameterValue(TEXT("Color"), bMagnetic ? TableReticlePullColor : TableReticleColor);
+		ReticleMaterial->SetVectorParameterValue(TEXT("Color"), Color);
 	}
 }
 

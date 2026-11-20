@@ -28,6 +28,28 @@ namespace MindPuck
 		return P.PullStrength * (std::min)(D / P.PullSoftness, 1.0);
 	}
 
+	double SteerAccel(double D, double PuckRadius, const FPhysicsParams& P)
+	{
+		const double Inner = P.DeadZone * PuckRadius;
+		const double Full = P.SteerFull * PuckRadius;
+		const double Far = P.SteerRange * PuckRadius;
+		const double Fade = Far * 1.5;
+		if (D <= Inner || D >= Fade)
+		{
+			return 0.0;
+		}
+		if (D < Full)
+		{
+			const double U = (D - Inner) / (Full - Inner);
+			return P.SteerStrength * U * U * (3 - 2 * U);
+		}
+		if (D <= Far)
+		{
+			return P.SteerStrength;
+		}
+		return P.SteerStrength * (1 - (D - Far) / (Fade - Far));
+	}
+
 	double WinRadius(const FLevel& Level)
 	{
 		return Level.Goal.R - Level.PuckRadius * 0.6;
@@ -93,7 +115,10 @@ namespace MindPuck
 			if (D > 1e-9)
 			{
 				// Repel pushes along the line from the gaze point to the puck; attract pulls back along it.
-				const double A = Mode == EGazeMode::Attract ? -PullAccel(D, P) : RepelAccel(D, R, P);
+				// Steer drives the same way attract pulls, but only while the gaze is on or near the puck.
+				const double A = Mode == EGazeMode::Attract ? -PullAccel(D, P)
+					: Mode == EGazeMode::Steer ? -SteerAccel(D, R, P)
+					: RepelAccel(D, R, P);
 				Ax = (Dx / D) * A;
 				Ay = (Dy / D) * A;
 			}
@@ -106,8 +131,8 @@ namespace MindPuck
 		const double Gx = Pos.X - Lv.Goal.X;
 		const double Gy = Pos.Y - Lv.Goal.Y;
 		const double GoalDist = std::hypot(Gx, Gy);
-		const bool bHeld = Gaze != nullptr && Mode == EGazeMode::Attract;
-		const double Damp = std::exp(-((GoalDist < Lv.Goal.R ? P.PadDrag : P.Drag) + (bHeld ? P.PullDrag : 0.0)) * Dt);
+		const double Extra = Gaze == nullptr ? 0.0 : Mode == EGazeMode::Attract ? P.PullDrag : Mode == EGazeMode::Steer ? P.SteerDrag : 0.0;
+		const double Damp = std::exp(-((GoalDist < Lv.Goal.R ? P.PadDrag : P.Drag) + Extra) * Dt);
 		Vel.X *= Damp;
 		Vel.Y *= Damp;
 		double Speed = std::hypot(Vel.X, Vel.Y);

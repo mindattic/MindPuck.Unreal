@@ -11,14 +11,22 @@
 namespace MindPuck
 {
 	/**
-	 * What the gaze does to the puck. Attract (magnetic) pulls the puck to where you look.
+	 * What the gaze does to the puck.
+	 * Attract (magnetic) pulls the puck to where you look.
+	 * Steer drives the puck toward the side of it you look at: look at its right edge and it goes
+	 * right. You keep your eyes on the puck the whole time.
 	 * Repel pushes it away: look where you do not want it to go.
 	 */
 	enum class EGazeMode
 	{
 		Attract,
+		Steer,
 		Repel,
 	};
+
+	/** The order F1 steps through. */
+	constexpr EGazeMode GazeModes[] = { EGazeMode::Attract, EGazeMode::Steer, EGazeMode::Repel };
+	constexpr int GazeModeCount = 3;
 
 	/** Every number that shapes how the table feels. The web repo's docs/DESIGN.md explains each one. */
 	struct FPhysicsParams
@@ -37,6 +45,14 @@ namespace MindPuck
 		double PullSoftness = 1.5;
 		/** Magnetic mode: extra drag while the gaze holds the puck, which stops it circling the point it is pulled to. */
 		double PullDrag = 3.5;
+		/** Steer mode: the drive when you look at the edge of the puck or just beyond it. */
+		double SteerStrength = 9.0;
+		/** Steer mode: the drive builds from nothing at the centre of the puck to full at this many puck radii out. */
+		double SteerFull = 1.5;
+		/** Steer mode: beyond this many puck radii the drive fades, so looking away lets the puck coast. */
+		double SteerRange = 4.0;
+		/** Steer mode: extra drag while steering, which keeps the speed manageable. */
+		double SteerDrag = 1.2;
 		/** Air drag: the fraction of speed lost per second while gliding. */
 		double Drag = 0.55;
 		/** Drag on the goal pad, which is what lets the puck come to rest there. */
@@ -67,6 +83,13 @@ namespace MindPuck
 
 	/** Magnetic mode: how hard the gaze pulls the puck from distance D. Zero when the puck is on the gaze point. */
 	double PullAccel(double D, const FPhysicsParams& P);
+
+	/**
+	 * Steer mode: how hard the puck is driven toward a gaze point at distance D from its centre.
+	 * Nothing at the centre (so looking straight at the puck lets it rest), full from the edge
+	 * outward, fading to nothing well away from the puck.
+	 */
+	double SteerAccel(double D, double PuckRadius, const FPhysicsParams& P);
 
 	/** The win radius: how close the puck's centre must be to the goal's centre. */
 	double WinRadius(const FLevel& Level);

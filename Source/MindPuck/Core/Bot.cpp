@@ -11,6 +11,8 @@ namespace MindPuck
 		const int BotDecideEvery = 4; // simulation steps between decisions: 30 a second at 120 steps a second
 		const int BotReplanEvery = 60; // simulation steps between route searches: twice a second
 		const double BotMinStandoff = 0.8;
+		/** Steer mode: how far from the centre of the puck the bot looks, in puck radii. Far enough that its unsteady gaze still points the right way. */
+		const double BotSteerStandoff = 2.6;
 	}
 
 	FSolverBot::FSolverBot(const FLevel& InLevel, const FPhysicsParams& InParams, const FBotOptions& InOptions, const FNavGrid* InGrid)
@@ -127,6 +129,24 @@ namespace MindPuck
 		double Ax = (Tx * Wanted - Vel.X) * 3;
 		double Ay = (Ty * Wanted - Vel.Y) * 3;
 		double A = std::hypot(Ax, Ay);
+
+		// Steer: look at the side of the puck it should accelerate toward, or straight at it to let it be.
+		if (Options.Mode == EGazeMode::Steer)
+		{
+			if (A < 0.6)
+			{
+				Aim.X = Pos.X;
+				Aim.Y = Pos.Y;
+			}
+			else
+			{
+				const double Reach = Lv.PuckRadius * BotSteerStandoff;
+				Aim.X = Pos.X + (Ax / A) * Reach;
+				Aim.Y = Pos.Y + (Ay / A) * Reach;
+			}
+			return;
+		}
+
 		if (A < 0.08)
 		{
 			Aim = FarCorner(Pos);

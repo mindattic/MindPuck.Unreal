@@ -16,7 +16,7 @@ namespace
 	const FLinearColor HudWarn(1.0f, 0.72f, 0.25f);
 	const FLinearColor HudAccent(0.5f, 0.83f, 1.0f);
 	const FLinearColor HudGoal(0.45f, 1.0f, 0.6f);
-	const FLinearColor HudPull(1.0f, 0.45f, 0.72f);
+	const FLinearColor HudAmber(1.0f, 0.72f, 0.25f);
 	const FLinearColor HudCover(0.02f, 0.027f, 0.05f, 1.0f);
 }
 
@@ -59,15 +59,19 @@ void AMindPuckHUD::DrawCalibration(const UGazeCalibrator* Calibrator, double Sca
 	{
 		const FVector2D Target = Calibrator->GetCurrentTarget();
 		const FVector2D At(Target.X * W, Target.Y * H);
-		DrawRing(At, 22.0 * Scale, HudAccent, 3.0 * Scale);
+		// The head-movement steps have an amber dot, so they read as a different instruction.
+		const bool bHead = Calibrator->IsHeadMovementStep();
+		DrawRing(At, 22.0 * Scale, bHead ? HudAmber : HudAccent, 3.0 * Scale);
 		// The centre dot grows while the tracker samples, as on the web.
 		const double DotRadius = (4.0 + 14.0 * Calibrator->GetCollectProgress()) * Scale;
-		Canvas->K2_DrawPolygon(nullptr, At, FVector2D(DotRadius, DotRadius), 24, FLinearColor::White);
+		Canvas->K2_DrawPolygon(nullptr, At, FVector2D(DotRadius, DotRadius), 24, bHead ? HudAmber : FLinearColor::White);
 
-		const FString Progress = FString::Printf(TEXT("Look at the dot until it fills. Keep your head still.   %d / %d   (C cancels)"),
-			Calibrator->GetTargetIndex() + 1, Calibrator->GetTargetCount());
+		const FString Progress = bHead
+			? FString::Printf(TEXT("%s   (C cancels)"), *Calibrator->GetInstruction())
+			: FString::Printf(TEXT("%s   %d / %d   (C cancels)"), *Calibrator->GetInstruction(),
+				Calibrator->GetTargetIndex() + 1, Calibrator->GetDotCount());
 		// Keep the line away from the target: at the bottom, or at the top for the bottom row.
-		DrawCentred(Progress, HudDim, W * 0.5, Target.Y > 0.7 ? H * 0.30 : H * 0.72, Medium, 1.2 * Scale);
+		DrawCentred(Progress, bHead ? HudText : HudDim, W * 0.5, Target.Y > 0.6 ? H * 0.30 : H * 0.72, Medium, (bHead ? 1.5 : 1.2) * Scale);
 	}
 	else
 	{
@@ -132,8 +136,10 @@ void AMindPuckHUD::DrawHUD()
 			FVector2D Screen;
 			if (Player->ProjectWorldLocationToScreen(Table->TableToWorld(GazeOnTable.X, GazeOnTable.Y, AMindPuckTable::GazePlaneHeight), Screen))
 			{
-				// Blue and wide for the repulsor, pink and smaller for the magnet.
-				DrawRing(Screen, (Game->IsMagnetic() ? 11.0 : 18.0) * Scale, Game->IsMagnetic() ? HudPull : HudAccent, 2.0 * Scale);
+				// Wide for the repulsor, smaller for the magnet, smallest for steer, in the mode's colour.
+				const MindPuck::EGazeMode Mode = Game->GetMode();
+				const double RingRadius = Mode == MindPuck::EGazeMode::Repel ? 18.0 : Mode == MindPuck::EGazeMode::Steer ? 8.0 : 11.0;
+				DrawRing(Screen, RingRadius * Scale, AMindPuckGameMode::ModeColor(Mode), 2.0 * Scale);
 			}
 		}
 	}
@@ -144,8 +150,6 @@ void AMindPuckHUD::DrawHUD()
 	const bool bBeat = Game->IsWon() && !Game->IsBotPlaying() && Game->GetTime() <= Game->GetPar();
 	DrawLabel(FString::Printf(TEXT("Time %.1f s"), Game->GetTime()), bBeat ? HudGoal : HudText, Pad, Pad + 44.0 * Scale, Medium, 1.5 * Scale);
 	DrawLabel(FString::Printf(TEXT("Par %.1f s"), Game->GetPar()), HudDim, Pad, Pad + 74.0 * Scale, Medium, 1.5 * Scale);
-
-	DrawLabel(Game->IsMagnetic() ? TEXT("Magnetic") : TEXT("Repulsor"), Game->IsMagnetic() ? HudPull : HudAccent, Pad, Pad + 108.0 * Scale, Medium, 1.5 * Scale);
 
 	// Top right: the run's seed, so a run can be started again with -Seed=.
 	{
@@ -159,9 +163,10 @@ void AMindPuckHUD::DrawHUD()
 	// Bottom: where the gaze comes from, then the keys.
 	bool bWarning = false;
 	const FString Status = Game->GetStatusText(bWarning);
-	const FString Keys = TEXT("F1 or Tab mode    R restart    N skip    B bot demo    C calibrate    M mouse stand-in");
+	const FString Keys = TEXT("R restart    N skip    B bot demo    C calibrate    M mouse stand-in");
 	{
-		// A dark plate behind the two lines, because they sit over the table's bottom rail.
+		// A dark plate behind the two lines, because they sit over the table. They are at the top
+		// centre, so that the bottom centre belongs to the mode label alone.
 		float StatusW = 0.f;
 		float StatusH = 0.f;
 		float KeysW = 0.f;
@@ -169,11 +174,43 @@ void AMindPuckHUD::DrawHUD()
 		GetTextSize(Status, StatusW, StatusH, Medium, static_cast<float>(1.4 * Scale));
 		GetTextSize(Keys, KeysW, KeysH, Medium, static_cast<float>(1.2 * Scale));
 		const double PlateW = FMath::Max(StatusW, KeysW) + 36.0 * Scale;
-		DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.62f), static_cast<float>(W * 0.5 - PlateW * 0.5), static_cast<float>(H - 96.0 * Scale),
-			static_cast<float>(PlateW), static_cast<float>(76.0 * Scale));
+		DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.62f), static_cast<float>(W * 0.5 - PlateW * 0.5), static_cast<float>(6.0 * Scale),
+			static_cast<float>(PlateW), static_cast<float>(72.0 * Scale));
 	}
-	DrawCentred(Status, bWarning ? HudWarn : HudText, W * 0.5, H - 86.0 * Scale, Medium, 1.4 * Scale);
-	DrawCentred(Keys, HudDim, W * 0.5, H - 50.0 * Scale, Medium, 1.2 * Scale);
+	DrawCentred(Status, bWarning ? HudWarn : HudText, W * 0.5, 14.0 * Scale, Medium, 1.4 * Scale);
+	DrawCentred(Keys, HudDim, W * 0.5, 46.0 * Scale, Medium, 1.2 * Scale);
+
+	// Bottom centre, always: which control scheme is live. "Mode 2 of 3  STEER  F1 next".
+	{
+		const MindPuck::EGazeMode Mode = Game->GetMode();
+		const FString Left = FString::Printf(TEXT("Mode %d of %d"), Game->GetModeNumber(), MindPuck::GazeModeCount);
+		const FString Name = FString(AMindPuckGameMode::ModeName(Mode)).ToUpper();
+		const FString Right = TEXT("F1 next");
+		const float SmallScale = static_cast<float>(1.3 * Scale);
+		const float NameScale = static_cast<float>(2.0 * Scale);
+		float LeftW = 0.f;
+		float LeftH = 0.f;
+		float NameW = 0.f;
+		float NameH = 0.f;
+		float RightW = 0.f;
+		float RightH = 0.f;
+		GetTextSize(Left, LeftW, LeftH, Medium, SmallScale);
+		GetTextSize(Name, NameW, NameH, Medium, NameScale);
+		GetTextSize(Right, RightW, RightH, Medium, SmallScale);
+		const double Gap = 14.0 * Scale;
+		const double Total = LeftW + Gap + NameW + Gap + RightW;
+		const double PlateH = NameH + 16.0 * Scale;
+		const double PlateY = H - PlateH - 12.0 * Scale;
+		double X = W * 0.5 - Total * 0.5;
+		DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.72f), static_cast<float>(X - 18.0 * Scale), static_cast<float>(PlateY),
+			static_cast<float>(Total + 36.0 * Scale), static_cast<float>(PlateH));
+		const double MidY = PlateY + PlateH * 0.5;
+		DrawLabel(Left, HudDim, X, MidY - LeftH * 0.5, Medium, SmallScale);
+		X += LeftW + Gap;
+		DrawLabel(Name, AMindPuckGameMode::ModeColor(Mode), X, MidY - NameH * 0.5, Medium, NameScale);
+		X += NameW + Gap;
+		DrawLabel(Right, HudDim, X, MidY - RightH * 0.5, Medium, SmallScale);
+	}
 
 	if (Game->IsWon())
 	{

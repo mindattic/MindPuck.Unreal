@@ -39,8 +39,8 @@ public:
 
 	void SetPuck(double TableX, double TableY);
 	void SetReticle(bool bVisible, double TableX, double TableY);
-	/** The reticle is blue and full size for the repulsor, pink and smaller for the magnet. */
-	void SetReticleStyle(bool bMagnetic);
+	/** The reticle takes the colour of the gaze mode. Size is a fraction of the repulsor's reticle. */
+	void SetReticleStyle(const FLinearColor& Color, double Size);
 	/** Brighten the goal pad, for the moment the level is won. */
 	void SetGoalLit(bool bLit);
 
