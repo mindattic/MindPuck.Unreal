@@ -13,6 +13,6 @@ a second copy under a provider-specific command folder.
   file. Rule changes are made in the web core first and then ported here, keeping the same
   constants, the same order of random draws and the same algorithms.
 - **The gaze plugin lives in another repo.** `MindAtticEyeTracker` is loaded from
-  `..\MindAttic.EyeTracker\unreal` (see `AdditionalPluginDirectories` in `MindPuck.uproject`).
-  Changes to it are commits in MindAttic.EyeTracker.
+  `..\MindAttic.Webcam\unreal` (see `AdditionalPluginDirectories` in `MindPuck.uproject`).
+  Changes to it are commits in MindAttic.Webcam.
 - Check work by building (`run.ps1 -BuildOnly`). Tests are run only when the user asks.

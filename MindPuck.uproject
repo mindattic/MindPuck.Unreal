@@ -24,6 +24,6 @@
 		}
 	],
 	"AdditionalPluginDirectories": [
-		"../MindAttic.EyeTracker/unreal"
+		"../MindAttic.Webcam/unreal"
 	]
 }

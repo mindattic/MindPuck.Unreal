@@ -17,7 +17,7 @@ Bring the puck to rest on the green pad. Every level is generated from a seed, a
 wins each one in all three modes, with an unsteady gaze, before you see it, so every level is known
 to be possible each way. The bot's time in the mode you are playing is the par.
 
-The gaze comes from a webcam through [MindAttic.EyeTracker](../MindAttic.EyeTracker). With no
+The gaze comes from a webcam through [MindAttic.Webcam](../MindAttic.Webcam). With no
 tracker connected the mouse stands in, so the game is playable without a camera.
 
 This is the Unreal version of the web game in [MindPuck](../MindPuck). The rules are the same code,
@@ -26,8 +26,8 @@ ported.
 ## What you need
 
 - Unreal Engine 5.8 (the scripts expect `D:\Games\UE_5.8`, or set `UE_ROOT`).
-- This repo and `MindAttic.EyeTracker` cloned side by side. The project loads the gaze plugin from
-  `..\MindAttic.EyeTracker\unreal` (see `AdditionalPluginDirectories` in `MindPuck.uproject`).
+- This repo and `MindAttic.Webcam` cloned side by side. The project loads the gaze plugin from
+  `..\MindAttic.Webcam\unreal` (see `AdditionalPluginDirectories` in `MindPuck.uproject`).
 - For eye tracking: Node, a webcam, and a browser.
 
 ## Run it
@@ -35,7 +35,7 @@ ported.
 1. Start the bridge and the tracker (skip this to play with the mouse):
 
    ```
-   cd D:\Projects\MindAttic\MindAttic.EyeTracker
+   cd D:\Projects\MindAttic\MindAttic.Webcam
    npm run build
    npm run bridge
    ```
